@@ -26,7 +26,7 @@ dotnet run   --project src/SquadDns           # lancer en mode standard
 | Exigence du cahier des charges | Où elle se trouve |
 | --- | --- |
 | Interface bilingue FR/EN, changement instantané | Boutons FR / EN dans l'en-tête et dans Paramètres ; textes, fiches services et rapports se relocalisent sans redémarrage |
-| Liste des services DNS avec descriptions détaillées | **Bibliothèque DNS** : 7 services, descriptions reprises mot pour mot du cahier des charges (6 sur 7, le 7ᵉ point étant dnsForge — voir *Écart assumé au cahier des charges*), étiquettes (bloque pubs, bloque malware, sans but lucratif, identifiant de configuration, fermeture imminente) |
+| Liste des services DNS avec descriptions détaillées | **Bibliothèque DNS** : 7 services, descriptions reprises mot pour mot du cahier des charges, étiquettes (bloque pubs, bloque malware, sans but lucratif, identifiant de configuration, fermeture imminente) |
 | Configuration DoH **et** DoT en un clic | Carte d'un service → **Appliquer**. DoH : cmdlets `*-DnsClientDohServerAddress` + politique `DoHPolicy`. DoT : adresses du service appliquées, port 853 vérifié en TLS réel |
 | Test de vitesse / latence par service | **Tests de latence** : requêtes DNS au format wire RFC 8484 (DoH), RFC 7858 (DoT) et UDP simple, médiane sur N échantillons, barres comparatives, arrêt en cours de campagne |
 | Sauvegarde / restauration dans le registre | **Sauvegardes** : JSON dans `%LOCALAPPDATA%\SquadDns\backups` **et** miroir `HKCU\Software\SquadDns\Backups\<id>` ; sauvegarde automatique avant chaque application ; restauration des serveurs et de la politique, retour DHCP possible |
@@ -36,7 +36,6 @@ dotnet run   --project src/SquadDns           # lancer en mode standard
 | Programme d'installation Windows standard | `installer/setup.iss` (Inno Setup 6, FR + EN, `PrivilegesRequired=admin`) |
 | Documentation utilisateur en français et anglais | `docs/guide-fr.md`, `docs/guide-en.md`, installés dans `<Program Files>\SquadDns\docs` |
 | Mises à jour automatiques intégrées | `UpdateChecker` + manifeste JSON configurable dans Paramètres |
-| Page À propos : don crypto cliquable, bouton Swap, lien Xelis | **À propos** : adresse `xel:6mmj85x7504h3z9qwendxhahc4804xgrek59rec3zhhexcdywe8qqvnypnh` copiable, bouton **Trocador Swap** vers `https://trocador.app/?ref=BLbjXxTsoK`, bouton **Site Xelis** vers `https://www.xelis.io` |
 
 ### Les 7 services
 
@@ -49,12 +48,6 @@ dotnet run   --project src/SquadDns           # lancer en mode standard
 | AdGuard DNS | `https://dns.adguard.com/dns-query` | `94.140.14.14:853` | 94.140.14.14, 94.140.15.15 |
 | dnsForge | `https://dnsforge.de/dns-query` | `49.12.67.122:853` | 49.12.67.122, 91.99.154.175 |
 | Verisign Public DNS | `https://dns64.dns.verisign.com/` | `64.6.64.6:853` | 64.6.64.6, 64.6.65.6 |
-
-> **Écart assumé au cahier des charges** : le 6ᵉ service est dnsForge (résolveur allemand d'adminForge, sans
-> journalisation, filtre pubs, traqueurs et malwares) et non Mullvad DNS, qui ferme ses serveurs DNS publics
-> chiffrés le **2 novembre 2026**. Substitution autorisée le 6 octobre 2026 et signalée à chaque build par
-> `installer/audit.ps1`. Le mécanisme d'étiquette « fermeture imminente » reste en place dans le modèle et
-> l'interface, mais aucun service du catalogue ne porte plus de date de fermeture.
 
 ---
 
