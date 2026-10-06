@@ -1,0 +1,21 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esults/
+installer/artifacts/
+
+# Scratch and logs
+.tmp/
+*.log
+
+# Signing material and account identity: never commit a key, a PFX, or a real Azure profile
+*.pfx
+*.pvk
+*.cer
+*.snk
+installer/azure-codesign.json
+
+# Machine and user specific
+.vs/
+*.user
+*.suo

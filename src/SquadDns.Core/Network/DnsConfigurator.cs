@@ -1,0 +1,351 @@
+using Microsoft.Win32;
+using SquadDns.Core.Io;
+using SquadDns.Core.Models;
+using SquadDns.Core.Settings;
+using SquadDns.Core.Shell;
+
+namespace SquadDns.Core.Network;
+
+public sealed record DohServerEntry(string ServerAddress, string DohTemplate, bool AllowFallbackToUdp, bool AutoUpgrade);
+
+public sealed record EffectiveDnsState(
+    int InterfaceIndex,
+    string InterfaceAlias,
+    IReadOnlyList<string> Servers,
+    IReadOnlyList<DohServerEntry> DohEntries,
+    int? PolicyValue,
+    string PolicyText)
+{
+    public bool EncryptedNow => PolicyValue == 3 || (PolicyValue is null && DohEntries.Count > 0 && Servers.Count > 0);
+    public bool FallsBackToPlain => PolicyValue == 2 || (PolicyValue is null && DohEntries.Any(e => e.AllowFallbackToUdp));
+}
+
+public sealed class DnsConfigurator
+{
+    public const string PolicyKey = @"SOFTWARE\Policies\Microsoft\Windows NT\DNSClient";
+    public const string PolicyValueName = "DoHPolicy";
+    public const string WellKnownServersKey = @"SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DohWellKnownServers";
+
+    private readonly IShell _shell;
+    private readonly IRegistryAccess _registry;
+
+    public DnsConfigurator(IShell shell, IRegistryAccess registry)
+    {
+        _shell = shell;
+        _registry = registry;
+    }
+
+    public static int PolicyValueFor(DnsSecurityMode mode) => mode switch
+    {
+        DnsSecurityMode.EncryptedOnly => 3,
+        DnsSecurityMode.EncryptedPreferred => 2,
+        _ => 1
+    };
+
+    public static string PolicyTextFor(int? value) => value switch
+    {
+        3 => "policy.require",
+        2 => "policy.auto",
+        1 => "policy.disabled",
+        _ => "policy.notConfigured"
+    };
+
+    public async Task<int?> ReadPolicyAsync(CancellationToken ct = default)
+    {
+        var result = await _shell.RunAsync(
+            $"(Get-ItemProperty -Path 'HKLM:\\{PolicyKey}' -ErrorAction SilentlyContinue).{PolicyValueName}",
+            ct);
+
+        var text = result.StdOut.Trim();
+        return int.TryParse(text, out var value) ? value : _registry.ReadDword(RegistryHive.LocalMachine, PolicyKey, PolicyValueName);
+    }
+
+    public async Task<IReadOnlyList<DohServerEntry>> ReadDohEntriesAsync(CancellationToken ct = default)
+    {
+        var script = """
+            @(Get-DnsClientDohServerAddress -ErrorAction SilentlyContinue |
+              ForEach-Object { [pscustomobject]@{ ServerAddress=[string]$_.Name; DohTemplate=[string]$_.DohTemplate; AllowFallbackToUdp=[bool]$_.AllowFallbackToUdp; AutoUpgrade=[bool]$_.AutoUpgrade } })
+            | ConvertTo-Json -Compress -Depth 3
+            """;
+
+        var result = await _shell.RunAsync(script, ct);
+        return ParseDoh(result.StdOut);
+    }
+
+    private const string ReadServersScript = """
+        $row = Get-DnsClientServerAddress -InterfaceIndex __INDEX__ -ErrorAction SilentlyContinue | Select-Object -First 1
+        $servers = if ($row) { @($row.ServerAddresses) } else { @() }
+        [pscustomobject]@{ Servers = $servers } | ConvertTo-Json -Compress -Depth 3
+        """;
+
+    public async Task<EffectiveDnsState> ReadStateAsync(int interfaceIndex, string interfaceAlias, CancellationToken ct = default)
+    {
+        var script = ReadServersScript.Replace("__INDEX__", interfaceIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        var result = await _shell.RunAsync(script, ct);
+        var servers = ParseServers(result.StdOut);
+        var doh = await ReadDohEntriesAsync(ct);
+        var policy = await ReadPolicyAsync(ct);
+
+        var relevant = doh
+            .Where(e => servers.Contains(e.ServerAddress, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        return new EffectiveDnsState(
+            interfaceIndex,
+            interfaceAlias,
+            servers,
+            relevant,
+            policy,
+            PolicyTextFor(policy));
+    }
+
+    public async Task<ApplyResult> ApplyAsync(
+        DnsProfile profile,
+        int interfaceIndex,
+        string interfaceAlias,
+        DnsSecurityMode mode,
+        bool dryRun = false,
+        CancellationToken ct = default)
+    {
+        var steps = new List<ApplyStep>();
+
+        if (profile.ResolverAddresses.Count == 0)
+        {
+            return new ApplyResult(ApplyStatus.Failed, "apply.noServers", steps, interfaceAlias);
+        }
+
+        if (!dryRun && !Elevation.IsElevated())
+        {
+            return new ApplyResult(ApplyStatus.NeedsElevation, "apply.needsElevation", steps, interfaceAlias);
+        }
+
+        var addresses = profile.ResolverAddresses.Take(2).ToArray();
+        var allowFallback = mode != DnsSecurityMode.EncryptedOnly;
+
+        if (mode != DnsSecurityMode.Unencrypted)
+        {
+            var existing = await ReadDohEntriesAsync(ct);
+
+            foreach (var address in addresses)
+            {
+                var known = existing.Any(e => string.Equals(e.ServerAddress, address, StringComparison.OrdinalIgnoreCase));
+                var verb = known ? "Set-DnsClientDohServerAddress" : "Add-DnsClientDohServerAddress";
+
+                var script = $"{verb} -ServerAddress {PowerShellShell.Quote(address)} -DohTemplate {PowerShellShell.Quote(profile.DoHTemplate)} " +
+                             $"-AllowFallbackToUdp ${(allowFallback ? "True" : "False")} -AutoUpgrade $True";
+
+                steps.Add(await RunStepAsync("registerDoh", script, dryRun, ct));
+            }
+        }
+
+        var setServers = $"Set-DnsClientServerAddress -InterfaceIndex {interfaceIndex} -ServerAddresses {PowerShellShell.QuoteArray(addresses)}";
+        steps.Add(await RunStepAsync("setServers", setServers, dryRun, ct));
+
+        var policy = PolicyValueFor(mode);
+        var setPolicy = $"New-ItemProperty -Path 'HKLM:\\{PolicyKey}' -Name {PolicyValueName} -PropertyType DWord -Value {policy} -Force | Out-Null";
+        steps.Add(await RunStepAsync("setPolicy", setPolicy, dryRun, ct));
+
+        steps.Add(await RunStepAsync("flushCache", "Clear-DnsClientCache", dryRun, ct));
+
+        if (dryRun)
+        {
+            return new ApplyResult(ApplyStatus.DryRun, "apply.dryRun", steps, interfaceAlias);
+        }
+
+        var verification = await VerifyAsync(profile, interfaceIndex, addresses, policy, ct);
+        var failed = steps.Count(s => !s.Success);
+        var status = failed == 0 && verification ? ApplyStatus.Success : failed == 0 ? ApplyStatus.PartialSuccess : ApplyStatus.Failed;
+
+        return new ApplyResult(status, status switch
+        {
+            ApplyStatus.Success => "apply.success",
+            ApplyStatus.PartialSuccess => "apply.verifyMismatch",
+            _ => "apply.failed"
+        }, steps, interfaceAlias);
+    }
+
+    public async Task<ApplyResult> RestoreAsync(DnsRestorePlan plan, bool dryRun = false, CancellationToken ct = default)
+    {
+        var steps = new List<ApplyStep>();
+
+        if (!dryRun && !Elevation.IsElevated())
+        {
+            return new ApplyResult(ApplyStatus.NeedsElevation, "apply.needsElevation", steps, plan.InterfaceAlias);
+        }
+
+        if (plan.UseDhcp)
+        {
+            steps.Add(await RunStepAsync("resetDhcp",
+                $"Set-DnsClientServerAddress -InterfaceIndex {plan.InterfaceIndex} -ResetServerAddresses", dryRun, ct));
+        }
+        else
+        {
+            steps.Add(await RunStepAsync("setServers",
+                $"Set-DnsClientServerAddress -InterfaceIndex {plan.InterfaceIndex} -ServerAddresses {PowerShellShell.QuoteArray(plan.Servers)}", dryRun, ct));
+        }
+
+        var policyScript = plan.PreviousPolicy is null
+            ? $"Remove-ItemProperty -Path 'HKLM:\\{PolicyKey}' -Name {PolicyValueName} -ErrorAction SilentlyContinue"
+            : $"New-ItemProperty -Path 'HKLM:\\{PolicyKey}' -Name {PolicyValueName} -PropertyType DWord -Value {plan.PreviousPolicy.Value} -Force | Out-Null";
+
+        steps.Add(await RunStepAsync("restorePolicy", policyScript, dryRun, ct));
+        steps.Add(await RunStepAsync("flushCache", "Clear-DnsClientCache", dryRun, ct));
+
+        return new ApplyResult(dryRun ? ApplyStatus.DryRun : ApplyStatus.Success,
+            dryRun ? "apply.dryRun" : "restore.success", steps, plan.InterfaceAlias);
+    }
+
+    public async Task<ApplyResult> RemoveDohEntriesAsync(IEnumerable<string> addresses, bool dryRun = false, CancellationToken ct = default)
+    {
+        var steps = new List<ApplyStep>();
+        foreach (var address in addresses)
+        {
+            steps.Add(await RunStepAsync("removeDoh",
+                $"Remove-DnsClientDohServerAddress -ServerAddress {PowerShellShell.Quote(address)} -ErrorAction SilentlyContinue", dryRun, ct));
+        }
+
+        return new ApplyResult(ApplyStatus.Success, "apply.success", steps, null);
+    }
+
+    private async Task<bool> VerifyAsync(DnsProfile profile, int interfaceIndex, string[] expectedServers, int expectedPolicy, CancellationToken ct)
+    {
+        var state = await ReadStateAsync(interfaceIndex, profile.Name, ct);
+        var serversOk = expectedServers.All(a => state.Servers.Contains(a, StringComparer.OrdinalIgnoreCase));
+        var policyOk = state.PolicyValue == expectedPolicy;
+
+        if (expectedPolicy == 1)
+        {
+            return serversOk && policyOk;
+        }
+
+        var dohOk = expectedServers.All(a => state.DohEntries.Any(e =>
+            string.Equals(e.ServerAddress, a, StringComparison.OrdinalIgnoreCase)
+            && e.DohTemplate.Contains(HostOf(profile.DoHTemplate), StringComparison.OrdinalIgnoreCase)));
+
+        return serversOk && policyOk && dohOk;
+    }
+
+    private static string HostOf(string template)
+    {
+        if (Uri.TryCreate(template, UriKind.Absolute, out var uri) && uri.Host.Length > 0)
+        {
+            return uri.Host;
+        }
+
+        return template;
+    }
+
+    private async Task<ApplyStep> RunStepAsync(string name, string script, bool dryRun, CancellationToken ct)
+    {
+        if (dryRun)
+        {
+            return new ApplyStep(name, script, Executed: false, Success: true, Error: null);
+        }
+
+        var result = await _shell.RunAsync(script, ct);
+        return new ApplyStep(name, script, Executed: true, result.Success, result.Success ? null : FirstLine(result.StdErr));
+    }
+
+    private static string FirstLine(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "unknown error";
+        }
+
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        return lines.Length > 0 ? lines[0].Trim() : text.Trim();
+    }
+
+    private static IReadOnlyList<string> ParseServers(string payload)
+    {
+        payload = payload.Trim();
+        var list = new List<string>();
+        if (!payload.StartsWith('{'))
+        {
+            return list;
+        }
+
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(payload);
+            if (document.RootElement.TryGetProperty("Servers", out var servers))
+            {
+                if (servers.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var value in servers.EnumerateArray())
+                    {
+                        var text = value.GetString();
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            list.Add(text);
+                        }
+                    }
+                }
+                else if (servers.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    list.Add(servers.GetString()!);
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // ignore
+        }
+
+        return list;
+    }
+
+    private static IReadOnlyList<DohServerEntry> ParseDoh(string payload)
+    {
+        payload = payload.Trim();
+        var list = new List<DohServerEntry>();
+        if (payload.Length == 0 || (!payload.StartsWith('[') && !payload.StartsWith('{')))
+        {
+            return list;
+        }
+
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(payload);
+            var root = document.RootElement;
+
+            if (root.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var element in root.EnumerateArray())
+                {
+                    AddEntry(list, element);
+                }
+            }
+            else if (root.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                AddEntry(list, root);
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // ignore
+        }
+
+        return list;
+    }
+
+    private static void AddEntry(List<DohServerEntry> list, System.Text.Json.JsonElement element)
+    {
+        var address = element.TryGetProperty("ServerAddress", out var a) ? a.GetString() : null;
+        var template = element.TryGetProperty("DohTemplate", out var t) ? t.GetString() : null;
+        if (string.IsNullOrWhiteSpace(address) || string.IsNullOrWhiteSpace(template))
+        {
+            return;
+        }
+
+        list.Add(new DohServerEntry(
+            address,
+            template,
+            element.TryGetProperty("AllowFallbackToUdp", out var f) && f.ValueKind == System.Text.Json.JsonValueKind.True,
+            element.TryGetProperty("AutoUpgrade", out var u) && u.ValueKind == System.Text.Json.JsonValueKind.True));
+    }
+}
+
+public sealed record DnsRestorePlan(int InterfaceIndex, string InterfaceAlias, IReadOnlyList<string> Servers, bool UseDhcp, int? PreviousPolicy, IReadOnlyList<string> AddedDohAddresses);

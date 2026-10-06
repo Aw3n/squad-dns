@@ -1,0 +1,6 @@
+{
+  "Endpoint": "https://neu.codesigning.azure.net",
+  "CodeSigningAccountName": "squad-dns",
+  "CertificateProfileName": "squad-dns-public",
+  "ExcludeCredentials": []
+}

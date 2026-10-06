@@ -1,0 +1,120 @@
+<UserControl x:Class="SquadDns.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="22,18">
+            <TextBlock Text="{DynamicResource settings.title}" Style="{StaticResource Title.Text}" Margin="0,0,0,14" />
+
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Style="{StaticResource Card.Border}" Margin="0,0,7,0">
+                    <StackPanel>
+                        <TextBlock Text="{DynamicResource settings.language}" Style="{StaticResource Section.Text}" />
+                        <StackPanel Orientation="Horizontal">
+                            <ToggleButton Style="{StaticResource Segment.ToggleButton}" Content="Français" Margin="0,0,6,0"
+                                          IsChecked="{Binding FrenchChecked, Mode=TwoWay}" />
+                            <ToggleButton Style="{StaticResource Segment.ToggleButton}" Content="English"
+                                          IsChecked="{Binding EnglishChecked, Mode=TwoWay}" />
+                        </StackPanel>
+
+                        <TextBlock Text="{DynamicResource settings.themeTitle}" Style="{StaticResource Section.Text}" Margin="0,16,0,0" />
+                        <StackPanel Orientation="Horizontal">
+                            <ToggleButton Style="{StaticResource Segment.ToggleButton}" Content="{DynamicResource settings.themeDark}"
+                                          Margin="0,0,6,0" IsChecked="{Binding DarkChecked, Mode=TwoWay}" />
+                            <ToggleButton Style="{StaticResource Segment.ToggleButton}" Content="{DynamicResource settings.themeLight}"
+                                          IsChecked="{Binding LightChecked, Mode=TwoWay}" />
+                        </StackPanel>
+                        <CheckBox Content="{DynamicResource settings.matrixRain}" Margin="0,10,0,0"
+                                  IsChecked="{Binding RainEnabled, Mode=TwoWay}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Style="{StaticResource Card.Border}" Margin="7,0,0,0">
+                    <StackPanel>
+                        <TextBlock Text="{DynamicResource settings.advanced}" Style="{StaticResource Section.Text}" />
+                        <CheckBox Content="{DynamicResource settings.advanced}" IsChecked="{Binding AdvancedMode, Mode=TwoWay}" />
+                        <TextBlock Text="{DynamicResource settings.advancedHint}" Style="{StaticResource Muted.Text}" Margin="0,4,0,0" />
+
+                        <TextBlock Text="{DynamicResource settings.updates}" Style="{StaticResource Section.Text}" Margin="0,16,0,0" />
+                        <CheckBox Content="{DynamicResource settings.updates}" IsChecked="{Binding UpdatesEnabled, Mode=TwoWay}" />
+                        <TextBlock Text="{DynamicResource settings.updatesHint}" Style="{StaticResource Muted.Text}" Margin="0,4,0,0" />
+                        <TextBox Margin="0,8,0,0" Text="{Binding FeedUrl, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="{DynamicResource settings.feedUrl}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button Style="{StaticResource Ghost.Button}" Content="{DynamicResource settings.updates.check}"
+                                    Command="{Binding CheckUpdateCommand}" />
+                            <TextBlock Style="{StaticResource Mono.Text}" VerticalAlignment="Center" Margin="10,0,0,0" Text="{Binding UpdateLine}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Border Style="{StaticResource Card.Border}" Margin="0,0,0,12"
+                    Visibility="{Binding AdvancedMode, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource custom.template}" Style="{StaticResource Section.Text}" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="180" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="{DynamicResource custom.name}" Style="{StaticResource Muted.Text}" />
+                            <TextBox Margin="0,4,0,0" Text="{Binding CustomName, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="{DynamicResource custom.template}" Style="{StaticResource Muted.Text}" Margin="0,8,0,0" />
+                            <TextBox Margin="0,4,0,0" Text="{Binding CustomTemplate, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Margin="8,0">
+                            <TextBlock Text="{DynamicResource custom.addresses}" Style="{StaticResource Muted.Text}" />
+                            <TextBox Margin="0,4,0,0" Text="{Binding CustomAddresses, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Text="{DynamicResource custom.dotServer}" Style="{StaticResource Muted.Text}" Margin="0,8,0,0" />
+                            <TextBox Margin="0,4,0,0" Text="{Binding CustomDotServer, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2" Margin="8,0,0,0">
+                            <TextBlock Text="{DynamicResource custom.dotPort}" Style="{StaticResource Muted.Text}" />
+                            <TextBox Margin="0,4,0,0" Text="{Binding CustomDotPort, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Style="{StaticResource Primary.Button}" Content="{DynamicResource custom.save}"
+                                    Command="{Binding SaveCustomCommand}" Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card.Border}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="260" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel>
+                        <TextBlock Text="{DynamicResource settings.paths}" Style="{StaticResource Section.Text}" />
+                        <TextBlock Style="{StaticResource Mono.Text}" FontSize="11" Text="{Binding PathsText}" />
+                        <TextBlock Style="{StaticResource Muted.Text}" Margin="0,10,0,0"
+                                   Text="{Binding RegistryPathDisplay}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="{DynamicResource settings.selftest}" Style="{StaticResource Section.Text}" />
+                        <Button Style="{StaticResource Ghost.Button}" Content="{DynamicResource settings.selftestRun}"
+                                Command="{Binding SelfTestCommand}" HorizontalAlignment="Left" Margin="0,0,0,6" />
+                        <Button Style="{StaticResource Ghost.Button}" Content="{DynamicResource settings.openLogs}"
+                                Command="{Binding OpenLogsCommand}" HorizontalAlignment="Left" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
