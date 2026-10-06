@@ -32,7 +32,9 @@ public static class LocalizationManager
         Changed?.Invoke();
     }
 
-    public static string T(string key) => Application.Current.TryFindResource(key) as string ?? key;
+    // Application.Current devient null apres Shutdown() : T() est appele par le gestionnaire
+    // d'erreur de derniere chance, qui ne doit jamais se casser lui-meme sur cette lecture.
+    public static string T(string key) => Application.Current?.TryFindResource(key) as string ?? key;
 
     public static string F(string key, params object[] args)
     {

@@ -566,6 +566,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var profile = card.Profile;
         var mode = Settings.Mode;
 
+        // L'interface est figee avant le premier await : un clic sur « Actualiser » pendant la
+        // sauvegarde automatique ou l'attente d'elevation mettraient _selectedAdapter a null, et
+        // la relecture plus bas produirait une NullReferenceException brute.
+        var adapter = _selectedAdapter;
+
         try
         {
             if (!PreviewOnly && AutoBackup)
@@ -573,11 +578,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 await CreateBackupAsync(profile, silent: true);
             }
 
-            var result = await _configurator.ApplyAsync(profile, _selectedAdapter.Index, _selectedAdapter.Alias, mode, PreviewOnly);
+            var result = await _configurator.ApplyAsync(profile, adapter.Index, adapter.Alias, mode, PreviewOnly);
 
             if (result.Status == ApplyStatus.NeedsElevation)
             {
-                var elevated = await ApplyWithElevationAsync(profile, mode);
+                var elevated = await ApplyWithElevationAsync(profile, mode, adapter);
                 if (elevated is null)
                 {
                     SetStatus(LocalizationManager.T("apply.elevationCanceled"), StatusLevel.Warning);
@@ -588,7 +593,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
 
             ShowSteps(result);
-            _log.Write("apply", $"{profile.Id} on {_selectedAdapter.Alias} -> {result.Status}");
+            _log.Write("apply", $"{profile.Id} on {adapter.Alias} -> {result.Status}");
             Settings.LastProfileId = profile.Id;
             Persist();
             await RefreshStateAsync();
@@ -627,7 +632,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         });
     }
 
-    private async Task<ApplyResult?> ApplyWithElevationAsync(DnsProfile profile, DnsSecurityMode mode)
+    private async Task<ApplyResult?> ApplyWithElevationAsync(DnsProfile profile, DnsSecurityMode mode, AdapterRow adapter)
     {
         try
         {
@@ -642,7 +647,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         var executable = Environment.ProcessPath ?? "SquadDns.exe";
-        var arguments = $"--apply {profile.Id} {_selectedAdapter!.Index} \"{_selectedAdapter.Alias}\" {mode}"
+        var arguments = $"--apply {profile.Id} {adapter.Index} \"{adapter.Alias}\" {mode}"
             + (PreviewOnly ? " --preview" : string.Empty);
 
         if (!Elevation.StartProcessElevated(executable, arguments))
@@ -739,39 +744,52 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         TestsRunning = true;
         TestProgress = 0;
 
-        var cards = Profiles.ToList();
-        for (var i = 0; i < cards.Count; i++)
+        try
         {
-            if (_runCancellation.IsCancellationRequested)
+            var cards = Profiles.ToList();
+            for (var i = 0; i < cards.Count; i++)
             {
-                break;
+                if (_runCancellation.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                var card = cards[i];
+                card.IsTesting = true;
+
+                try
+                {
+                    var result = await _tester.RunAsync(card.Profile, Settings.TestDomain, Settings.TestSampleCount, true, _runCancellation.Token);
+                    ApplyTestResult(card, result);
+                }
+                catch (Exception ex)
+                {
+                    card.MedianDoH = LocalizationManager.T("tests.failed");
+                    _log.Write("test-error", $"{card.Id}: {ex.Message}");
+                }
+                finally
+                {
+                    card.IsTesting = false;
+                    TestProgress = (i + 1) * 100.0 / Math.Max(1, cards.Count);
+                }
             }
 
-            var card = cards[i];
-            card.IsTesting = true;
-
-            try
-            {
-                var result = await _tester.RunAsync(card.Profile, Settings.TestDomain, Settings.TestSampleCount, true, _runCancellation.Token);
-                ApplyTestResult(card, result);
-            }
-            catch (Exception ex)
-            {
-                card.MedianDoH = LocalizationManager.T("tests.failed");
-                _log.Write("test-error", $"{card.Id}: {ex.Message}");
-            }
-            finally
-            {
-                card.IsTesting = false;
-                TestProgress = (i + 1) * 100.0 / Math.Max(1, cards.Count);
-            }
+            var baseline = await _tester.TestSystemResolverAsync(Settings.TestDomain);
+            BestLine = BuildBestLine(baseline);
+            SetStatus($"{LocalizationManager.T("tests.summary")}: {BestLine}", StatusLevel.Info);
+            Section = 1;
         }
-
-        var baseline = await _tester.TestSystemResolverAsync(Settings.TestDomain);
-        BestLine = BuildBestLine(baseline);
-        TestsRunning = false;
-        SetStatus($"{LocalizationManager.T("tests.summary")}: {BestLine}", StatusLevel.Info);
-        Section = 1;
+        catch (Exception ex)
+        {
+            // Sans ce garde-fou, TestsRunning resterait a true apres une exception : la barre de
+            // progression se figerait et plus aucun test ne serait possible sans redemarrage.
+            SetStatus($"{LocalizationManager.T("common.error")}: {ex.Message}", StatusLevel.Error);
+            _log.Write("test-all-error", ex.ToString());
+        }
+        finally
+        {
+            TestsRunning = false;
+        }
     }
 
     private string BuildBestLine(TestSample baseline)
@@ -814,19 +832,37 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task CreateBackupAsync(DnsProfile profile, bool silent)
     {
-        if (_selectedAdapter is null)
+        var adapter = _selectedAdapter;
+        if (adapter is null)
         {
             SetStatus(LocalizationManager.T("status.noAdapter"), StatusLevel.Error);
             return;
         }
 
-        var state = await _configurator.ReadStateAsync(_selectedAdapter.Index, _selectedAdapter.Alias);
-        var backup = _backups.Capture(_selectedAdapter.Adapter, state, profile, profile.ResolverAddresses);
-        ReloadBackups();
-
-        if (!silent)
+        try
         {
-            SetStatus($"{LocalizationManager.T("backup.auto.created")} {backup.CreatedAtText}", StatusLevel.Success);
+            var state = await _configurator.ReadStateAsync(adapter.Index, adapter.Alias);
+            var backup = _backups.Capture(adapter.Adapter, state, profile, profile.ResolverAddresses);
+            ReloadBackups();
+
+            if (!silent)
+            {
+                SetStatus($"{LocalizationManager.T("backup.auto.created")} {backup.CreatedAtText}", StatusLevel.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Write("backup-error", ex.ToString());
+
+            // silent = sauvegarde automatique demandee par ApplyAsync avant ecriture : elle sert de
+            // filet de securite, donc l'ecriture doit s'arreter si elle echoue (ApplyAsync l'affiche
+            // dans la barre d'etat, sans boite d'erreur).
+            if (silent)
+            {
+                throw;
+            }
+
+            SetStatus($"{LocalizationManager.T("common.error")}: {ex.Message}", StatusLevel.Error);
         }
     }
 
@@ -850,6 +886,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             ShowSteps(result);
             await RefreshStateAsync();
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"{LocalizationManager.T("common.error")}: {ex.Message}", StatusLevel.Error);
+            _log.Write("restore-error", ex.ToString());
         }
         finally
         {

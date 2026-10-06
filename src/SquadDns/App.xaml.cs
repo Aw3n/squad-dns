@@ -197,11 +197,18 @@ public partial class App : Application
         try
         {
             _log.Write("ui-error", text);
+
+            // Une boite de dialogue qui echoue (plus aucune fenetre, station sans bureau) ne doit pas
+            // transformer une erreur recuperable en arret brutal du processus.
             MessageBox.Show(
                 e.Exception.Message,
                 LocalizationManager.T("common.error"),
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
+        }
+        catch (Exception reportFault)
+        {
+            Console.WriteLine("error reporting failed: " + reportFault);
         }
         finally
         {

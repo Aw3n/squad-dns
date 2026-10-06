@@ -75,6 +75,11 @@ public sealed class BackupStore
     public void Write(DnsBackup backup)
     {
         var json = JsonSerializer.Serialize(backup, JsonOptions);
+
+        // Le dossier peut avoir disparu depuis le demarrage (nettoyage, suppression manuelle du
+        // repertoire SquadDns) : sans ceci l'ecriture jette DirectoryNotFoundException et remonte
+        // jusqu'au dispatcher WPF sous forme de boite d'erreur brute.
+        Directory.CreateDirectory(_paths.Backups);
         File.WriteAllText(PathOf(backup.Id), json);
 
         try
@@ -193,7 +198,7 @@ public sealed class BackupStore
                 ? Directory.GetFiles(_paths.Backups, "backup-*.json")
                 : Array.Empty<string>();
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return Array.Empty<string>();
         }
@@ -205,7 +210,7 @@ public sealed class BackupStore
         {
             return _registry.ReadSubKeyNames(RegistryHive.CurrentUser, RegistryPath);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return Array.Empty<string>();
         }
