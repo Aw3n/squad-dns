@@ -593,7 +593,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
 
             ShowSteps(result);
-            _log.Write("apply", $"{profile.Id} on {adapter.Alias} -> {result.Status}");
+
+            // Sans le detail des etapes en echec, le journal dit seulement « Failed » et la faute reste
+            // introuvable une fois la fenetre fermee : la premiere ligne stderr de chaque etape ko y va.
+            var faults = string.Join(" | ", result.Steps
+                .Where(step => step.Executed && !step.Success)
+                .Select(step => $"{step.Name}: {(string.IsNullOrWhiteSpace(step.Error) ? "aucun message" : step.Error)}"));
+            _log.Write("apply", $"{profile.Id} on {adapter.Alias} -> {result.Status}" +
+                                (faults.Length == 0 ? string.Empty : " :: " + faults));
             Settings.LastProfileId = profile.Id;
             Persist();
             await RefreshStateAsync();

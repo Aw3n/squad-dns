@@ -193,14 +193,37 @@
                 <ItemsControl ItemsSource="{Binding Steps}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Margin="0,2">
-                                <TextBlock Text="{Binding State}" Width="70" FontFamily="{DynamicResource Font.Data}" FontSize="11"
-                                           Foreground="{DynamicResource Brush.Amber}" />
-                                <TextBlock Text="{Binding Name}" Width="130" FontFamily="{DynamicResource Font.Data}" FontSize="11"
+                            <!-- Une grille et non un StackPanel horizontal : dans un StackPanel horizontal, la
+                             colonne de commande est mesuree avec une largeur infinie, donc TextWrapping ne
+                             sert jamais et les commandes longues sont coupees sans raison affichable. -->
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="70" />
+                                    <ColumnDefinition Width="130" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding State}" FontFamily="{DynamicResource Font.Data}" FontSize="11">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{DynamicResource Brush.Amber}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasError}" Value="True">
+                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.Red}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <TextBlock Grid.Column="1" Text="{Binding Name}" FontFamily="{DynamicResource Font.Data}" FontSize="11"
                                            Foreground="{DynamicResource Brush.TextMuted}" />
-                                <TextBlock Text="{Binding Command}" FontFamily="{DynamicResource Font.Data}" FontSize="11"
-                                           Foreground="{DynamicResource Brush.Cyan}" TextWrapping="Wrap" />
-                            </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="{Binding Command}" FontFamily="{DynamicResource Font.Data}" FontSize="11"
+                                               Foreground="{DynamicResource Brush.Cyan}" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding Error}" FontFamily="{DynamicResource Font.Data}" FontSize="11"
+                                               Foreground="{DynamicResource Brush.Red}" TextWrapping="Wrap"
+                                               Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}" />
+                                </StackPanel>
+                            </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>

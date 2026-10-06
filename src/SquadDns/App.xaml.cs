@@ -126,7 +126,11 @@ public partial class App : Application
                     }
 
                     MainViewModel.WriteHandshake(_paths, task.Result);
-                    _log.Write("headless", $"apply {profileId} -> {task.Result.Status}");
+                    var faults = string.Join(" | ", task.Result.Steps
+                        .Where(step => step.Executed && !step.Success)
+                        .Select(step => $"{step.Name}: {(string.IsNullOrWhiteSpace(step.Error) ? "aucun message" : step.Error)}"));
+                    _log.Write("headless", $"apply {profileId} -> {task.Result.Status}" +
+                                           (faults.Length == 0 ? string.Empty : " :: " + faults));
                 }
                 catch (Exception ex)
                 {

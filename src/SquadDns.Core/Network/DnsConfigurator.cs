@@ -62,11 +62,14 @@ public sealed class DnsConfigurator
 
     public async Task<IReadOnlyList<DohServerEntry>> ReadDohEntriesAsync(CancellationToken ct = default)
     {
-        var script = """
-            @(Get-DnsClientDohServerAddress -ErrorAction SilentlyContinue |
-              ForEach-Object { [pscustomobject]@{ ServerAddress=[string]$_.Name; DohTemplate=[string]$_.DohTemplate; AllowFallbackToUdp=[bool]$_.AllowFallbackToUdp; AutoUpgrade=[bool]$_.AutoUpgrade } })
-            | ConvertTo-Json -Compress -Depth 3
-            """;
+        // Tout le pipeline sur une seule ligne : PowerShell clot une instruction pipeline des qu'une ligne
+        // commence par « | » (« Un élément de canal vide n'est pas autorisé », ParserError). En multi-ligne,
+        // cette lecture echouait silencieusement, l'appli ne voyait jamais les entrees DoH existantes,
+        // choisissait toujours Add- (qui echoue si l'entree existe deja) et ne pouvait jamais se verifier.
+        var script = "@(Get-DnsClientDohServerAddress -ErrorAction SilentlyContinue | " +
+                     "ForEach-Object { [pscustomobject]@{ ServerAddress=[string]$_.Name; DohTemplate=[string]$_.DohTemplate; " +
+                     "AllowFallbackToUdp=[bool]$_.AllowFallbackToUdp; AutoUpgrade=[bool]$_.AutoUpgrade } }) " +
+                     "| ConvertTo-Json -Compress -Depth 3";
 
         var result = await _shell.RunAsync(script, ct);
         return ParseDoh(result.StdOut);

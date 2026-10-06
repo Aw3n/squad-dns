@@ -29,6 +29,7 @@ public sealed class StepRow
     public string Command => Step.Command;
     public string State => Step.Executed ? (Step.Success ? "ok" : "ko") : "planned";
     public string? Error => Step.Error;
+    public bool HasError => !string.IsNullOrWhiteSpace(Step.Error);
 }
 
 public sealed class ProfileCard : ObservableObject
