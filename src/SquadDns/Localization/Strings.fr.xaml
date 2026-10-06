@@ -69,6 +69,8 @@
     <s:String x:Key="apply.dryRun">Aperçu généré, aucune écriture.</s:String>
     <s:String x:Key="apply.needsElevation">Élévation requise.</s:String>
     <s:String x:Key="apply.noServers">Aucune adresse serveur pour ce service.</s:String>
+    <s:String x:Key="apply.dohUnsupported">Ce Windows ne fournit pas les applets DNS sur HTTPS : Windows 11 22H2 ou plus récent est requis. Aucune modification n’a été écrite.</s:String>
+    <s:String x:Key="apply.dohRegistrationFailed">Enregistrement DoH refusé : le chiffrement exigé n’a pas pu être configuré, les serveurs DNS n’ont pas été modifiés.</s:String>
     <s:String x:Key="apply.elevationCanceled">Élévation annulée.</s:String>
     <s:String x:Key="apply.elevatedLaunched">Fenêtre d’élévation ouverte, résultat attendu.</s:String>
     <s:String x:Key="apply.waiting">En attente du résultat élevé…</s:String>

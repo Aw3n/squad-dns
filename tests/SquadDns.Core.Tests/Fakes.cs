@@ -14,11 +14,19 @@ public sealed class FakeShell : IShell
 
     public int ExitCode { get; set; }
 
+    public string CapabilityProbeOutput { get; set; } = "yes";
+
     public void Enqueue(string output) => _queued.Enqueue(output);
 
     public Task<ShellResult> RunAsync(string script, CancellationToken ct = default)
     {
         Scripts.Add(script);
+
+        if (script.Contains("Get-Command", StringComparison.Ordinal))
+        {
+            return Task.FromResult(new ShellResult(0, CapabilityProbeOutput, string.Empty));
+        }
+
         var output = _queued.Count > 0 ? _queued.Dequeue() : DefaultOutput;
         return Task.FromResult(new ShellResult(ExitCode, output, ExitCode == 0 ? string.Empty : "fake failure"));
     }

@@ -28,12 +28,30 @@ public sealed class DnsConfigurator
 
     private readonly IShell _shell;
     private readonly IRegistryAccess _registry;
+    private bool? _dohCapable;
 
     public DnsConfigurator(IShell shell, IRegistryAccess registry)
     {
         _shell = shell;
         _registry = registry;
     }
+
+    public async Task<bool> SupportsDoHConfigurationAsync(CancellationToken ct = default)
+    {
+        if (_dohCapable.HasValue)
+        {
+            return _dohCapable.Value;
+        }
+
+        var probe = await _shell.RunAsync(Shell.PowerShellShell.DohCmdletProbeScript, ct);
+        _dohCapable = probe.StdOut.Contains("yes", StringComparison.OrdinalIgnoreCase);
+        return _dohCapable.Value;
+    }
+
+    // « DoH exige » ne promet aucun repli en clair : si l'enregistrement DoH a echoue, ecrire quand meme
+    // les serveurs et la politique laisserait le poste non chiffe en affirmant le contraire.
+    public static bool AbortsAfterDohFailure(DnsSecurityMode mode, IReadOnlyList<ApplyStep> steps) =>
+        mode == DnsSecurityMode.EncryptedOnly && steps.Any(s => s.Executed && !s.Success);
 
     public static int PolicyValueFor(DnsSecurityMode mode) => mode switch
     {
@@ -118,6 +136,14 @@ public sealed class DnsConfigurator
             return new ApplyResult(ApplyStatus.Failed, "apply.noServers", steps, interfaceAlias);
         }
 
+        // Windows 10 et Windows 11 avant 22H2 n'ont pas les applets DoH : la lecture revient vide, le plan
+        // choisit Add-, la commande n'existe pas, et les etapes suivantes ecrivaient des serveurs en clair
+        // sous une politique « DoH exige ». Refus avant la premiere ecriture et avant l'invite UAC.
+        if (mode != DnsSecurityMode.Unencrypted && !await SupportsDoHConfigurationAsync(ct))
+        {
+            return new ApplyResult(ApplyStatus.Failed, "apply.dohUnsupported", steps, interfaceAlias);
+        }
+
         if (!dryRun && !Elevation.IsElevated())
         {
             return new ApplyResult(ApplyStatus.NeedsElevation, "apply.needsElevation", steps, interfaceAlias);
@@ -139,6 +165,11 @@ public sealed class DnsConfigurator
                              $"-AllowFallbackToUdp ${(allowFallback ? "True" : "False")} -AutoUpgrade $True";
 
                 steps.Add(await RunStepAsync("registerDoh", script, dryRun, ct));
+            }
+
+            if (AbortsAfterDohFailure(mode, steps))
+            {
+                return new ApplyResult(ApplyStatus.Failed, "apply.dohRegistrationFailed", steps, interfaceAlias);
             }
         }
 

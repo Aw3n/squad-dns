@@ -179,6 +179,10 @@ Always attach these files when reporting a problem.
   traffic through DoT you need a third-party resolver on the network (AdGuard Home, Pi-hole +
   dnscrypt-proxy, an enterprise resolver). This is written on the **About** page, in the **Tests** tab and in
   the result notes — the software never claims to have encrypted what it did not encrypt.
+- **DoH requires Windows 11 22H2 or later.** The `*-DnsClientDohServerAddress` cmdlets do not exist on
+  Windows 10: Squad DNS detects this at startup and refuses to write anything in an encrypted mode, instead
+  of leaving plain servers behind a "require DoH" policy the system ignores. On those systems, switch to
+  **Unencrypted only**.
 - **DoH depends on your network.** Some ISPs and corporate networks block DNS over 443 or force an internal
   resolver.
 - **x64 only**, Windows 10 version 1809 or later.

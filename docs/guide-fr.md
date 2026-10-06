@@ -184,6 +184,10 @@ et ouvre le lien de téléchargement. Elle **n'installe rien** à votre place.
   (AdGuard Home, Pi-hole + dnscrypt-proxy, resolver d'entreprise). Le message est écrit sur la page
   **À propos**, dans l'onglet **Tests** et dans les notes de résultats — le logiciel ne prétend jamais
   avoir chiffré ce qu'il n'a pas chiffré.
+- **DoH exige Windows 11 22H2 ou plus récent.** Les applets `*-DnsClientDohServerAddress` n'existent pas sur
+  Windows 10 : Squad DNS le détecte au démarrage et refuse d'écrire quoi que ce soit en mode chiffré, au lieu
+  de laisser des serveurs en clair sous une politique « DoH exigé » que le système ignore. Sur ces systèmes,
+  passez en mode **Non chiffré uniquement**.
 - **DoH dépend du réseau.** Certains opérateurs et réseaux d'entreprise bloquent le port 443 DNS ou
   forcent un résolveur interne.
 - **x64 uniquement**, Windows 10 1809 ou ultérieur.

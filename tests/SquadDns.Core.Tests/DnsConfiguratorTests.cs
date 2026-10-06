@@ -8,7 +8,19 @@ public class DnsConfiguratorTests
 {
     private const string NoDohEntries = "[]";
 
+    private static readonly string[] MutatingVerbs = { "Set-", "Add-", "New-", "Clear-", "Remove-" };
+
     private static DnsProfile Cloudflare => ProviderCatalog.Find("cloudflare")!;
+
+    private static void AssertNoMutatingScript(IEnumerable<string> scripts)
+    {
+        foreach (var script in scripts)
+        {
+            Assert.False(
+                MutatingVerbs.Any(verb => script.StartsWith(verb, StringComparison.Ordinal)),
+                $"une commande mutante a ete executee : {script}");
+        }
+    }
 
     [Fact]
     public async Task Preview_plans_the_documented_commands_without_running_any_of_them()
@@ -32,7 +44,9 @@ public class DnsConfiguratorTests
         Assert.Contains("-Name DoHPolicy -PropertyType DWord -Value 2 -Force", result.Steps[3].Command, StringComparison.Ordinal);
         Assert.Equal("Clear-DnsClientCache", result.Steps[4].Command);
 
-        Assert.Single(shell.Scripts);
+        // La sonde de capacite precede la lecture des entrees DoH : deux appels, aucun mutatif.
+        Assert.Equal(2, shell.Scripts.Count);
+        AssertNoMutatingScript(shell.Scripts);
     }
 
     [Fact]
@@ -171,6 +185,47 @@ public class DnsConfiguratorTests
         Assert.Equal(ApplyStatus.NeedsElevation, result.Status);
         Assert.Equal("apply.needsElevation", result.SummaryKey);
         Assert.Empty(result.Steps);
+        AssertNoMutatingScript(shell.Scripts);
+    }
+
+    [Fact]
+    public async Task Unencrypted_still_applies_where_the_doh_cmdlets_are_missing()
+    {
+        var shell = new FakeShell { CapabilityProbeOutput = "no" };
+        var configurator = new DnsConfigurator(shell, new FakeRegistry());
+
+        var result = await configurator.ApplyAsync(Cloudflare, 4, "Ethernet", DnsSecurityMode.Unencrypted, dryRun: true);
+
+        Assert.Equal(ApplyStatus.DryRun, result.Status);
+        Assert.Equal(new[] { "setServers", "setPolicy", "flushCache" }, result.Steps.Select(s => s.Name));
         Assert.Empty(shell.Scripts);
+    }
+
+    [Fact]
+    public async Task Encrypted_modes_refuse_to_write_anything_when_the_doh_cmdlets_are_missing()
+    {
+        var shell = new FakeShell { CapabilityProbeOutput = "no", DefaultOutput = NoDohEntries };
+        var configurator = new DnsConfigurator(shell, new FakeRegistry());
+
+        var result = await configurator.ApplyAsync(Cloudflare, 4, "Ethernet", DnsSecurityMode.EncryptedOnly, dryRun: true);
+
+        Assert.Equal(ApplyStatus.Failed, result.Status);
+        Assert.Equal("apply.dohUnsupported", result.SummaryKey);
+        Assert.Empty(result.Steps);
+        Assert.Single(shell.Scripts);
+        AssertNoMutatingScript(shell.Scripts);
+    }
+
+    [Fact]
+    public void EncryptedOnly_never_writes_servers_after_a_failed_doh_registration()
+    {
+        var failed = new ApplyStep("registerDoh", "Add-DnsClientDohServerAddress ...", Executed: true, Success: false, Error: "not recognized");
+        var ok = new ApplyStep("registerDoh", "Set-DnsClientDohServerAddress ...", Executed: true, Success: true, Error: null);
+        var planned = new ApplyStep("registerDoh", "Set-DnsClientDohServerAddress ...", Executed: false, Success: true, Error: null);
+
+        Assert.True(DnsConfigurator.AbortsAfterDohFailure(DnsSecurityMode.EncryptedOnly, new[] { failed, ok }));
+        Assert.False(DnsConfigurator.AbortsAfterDohFailure(DnsSecurityMode.EncryptedPreferred, new[] { failed }));
+        Assert.False(DnsConfigurator.AbortsAfterDohFailure(DnsSecurityMode.EncryptedOnly, new[] { ok }));
+        Assert.False(DnsConfigurator.AbortsAfterDohFailure(DnsSecurityMode.EncryptedOnly, new[] { planned }));
     }
 }

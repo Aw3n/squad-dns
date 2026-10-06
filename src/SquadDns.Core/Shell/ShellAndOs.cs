@@ -40,6 +40,11 @@ public interface IShell
 public sealed class PowerShellShell : IShell
 {
     private const string Prefix = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; ";
+
+    // Sonde partagee : l'affichage « DoH : non » et le refus d'application doivent poser la meme question.
+    public const string DohCmdletProbeScript =
+        "if (Get-Command Add-DnsClientDohServerAddress -ErrorAction SilentlyContinue) { Write-Output 'yes' } else { Write-Output 'no' }";
+
     private readonly IProcessRunner _runner;
     private readonly TimeSpan _timeout;
 
@@ -146,10 +151,7 @@ public sealed record OsInfo(
 
     private static async Task<bool> ProbeCmdletsAsync(IShell shell, CancellationToken ct = default)
     {
-        var result = await shell.RunAsync(
-            "if (Get-Command Add-DnsClientDohServerAddress -ErrorAction SilentlyContinue) { Write-Output 'yes' } else { Write-Output 'no' }",
-            ct);
-
+        var result = await shell.RunAsync(PowerShellShell.DohCmdletProbeScript, ct);
         return result.StdOut.Contains("yes", StringComparison.OrdinalIgnoreCase);
     }
 

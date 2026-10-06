@@ -79,7 +79,8 @@ supprime la valeur `DoHPolicy` si elle n'existait pas.
 
 ### Prérequis
 
-- Windows 10 1809 ou ultérieur, Windows 11, **x64** ;
+- Windows 10 1809 ou ultérieur, Windows 11, **x64** — le chiffrement DoH nécessite **Windows 11 22H2**
+  ou plus récent (les applets `*-DnsClientDohServerAddress` n'existent pas avant) ;
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) pour compiler ;
 - **.NET 8 Desktop Runtime (x64)** pour exécuter une build dépendante du framework ;
 - droits administrateur **uniquement** au moment d'écrire la configuration DNS.

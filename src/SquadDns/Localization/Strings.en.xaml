@@ -69,6 +69,8 @@
     <s:String x:Key="apply.dryRun">Preview generated, nothing written.</s:String>
     <s:String x:Key="apply.needsElevation">Elevation required.</s:String>
     <s:String x:Key="apply.noServers">This service has no server address.</s:String>
+    <s:String x:Key="apply.dohUnsupported">This Windows has no DNS-over-HTTPS cmdlets: Windows 11 22H2 or later is required. Nothing was written.</s:String>
+    <s:String x:Key="apply.dohRegistrationFailed">DoH registration was refused: the required encryption could not be configured, so the DNS servers were left untouched.</s:String>
     <s:String x:Key="apply.elevationCanceled">Elevation cancelled.</s:String>
     <s:String x:Key="apply.elevatedLaunched">Elevation prompt opened, waiting for the result.</s:String>
     <s:String x:Key="apply.waiting">Waiting for the elevated result…</s:String>
