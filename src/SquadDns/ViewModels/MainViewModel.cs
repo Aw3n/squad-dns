@@ -578,7 +578,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 await CreateBackupAsync(profile, silent: true);
             }
 
-            var result = await _configurator.ApplyAsync(profile, adapter.Index, adapter.Alias, mode, PreviewOnly);
+            var result = await _configurator.ApplyAsync(profile, adapter.Index, adapter.Alias, mode, PreviewOnly, ConfirmEncryptionAsync);
 
             if (result.Status == ApplyStatus.NeedsElevation)
             {
@@ -703,7 +703,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return new ApplyResult(ApplyStatus.Failed, "apply.noServers", Array.Empty<ApplyStep>(), interfaceAlias);
         }
 
-        return await _configurator.ApplyAsync(profile, interfaceIndex, interfaceAlias, mode, preview);
+        return await _configurator.ApplyAsync(profile, interfaceIndex, interfaceAlias, mode, preview, ConfirmEncryptionAsync);
+    }
+
+    // Une seule requete DoH reelle vers le modele qui vient d'etre enregistre : sans cette confirmation,
+    // un point injoignable (Quad9 :5053, Verisign dns64) rendait un « applique et verifie » merite
+    // uniquement par la coherence du registre.
+    private async Task<bool> ConfirmEncryptionAsync(DnsProfile profile, CancellationToken ct)
+    {
+        var sample = await _tester.TestDoHAsync(profile, Settings.TestDomain, ct);
+        return sample.Success;
     }
 
     public static void WriteHandshake(AppPaths paths, ApplyResult result)

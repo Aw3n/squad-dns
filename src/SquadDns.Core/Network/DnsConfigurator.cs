@@ -127,6 +127,7 @@ public sealed class DnsConfigurator
         string interfaceAlias,
         DnsSecurityMode mode,
         bool dryRun = false,
+        Func<DnsProfile, CancellationToken, Task<bool>>? confirmEncryptionAsync = null,
         CancellationToken ct = default)
     {
         var steps = new List<ApplyStep>();
@@ -189,15 +190,24 @@ public sealed class DnsConfigurator
 
         var verification = await VerifyAsync(profile, interfaceIndex, addresses, policy, ct);
         var failed = steps.Count(s => !s.Success);
-        var status = failed == 0 && verification ? ApplyStatus.Success : failed == 0 ? ApplyStatus.PartialSuccess : ApplyStatus.Failed;
 
-        return new ApplyResult(status, status switch
-        {
-            ApplyStatus.Success => "apply.success",
-            ApplyStatus.PartialSuccess => "apply.verifyMismatch",
-            _ => "apply.failed"
-        }, steps, interfaceAlias);
+        // Sans sonde fournie, on reste sur la coherence du registre : c'est ce que verifiait l'ancien code.
+        var encryptionResponds = mode == DnsSecurityMode.Unencrypted ||
+                                 confirmEncryptionAsync is null ||
+                                 await confirmEncryptionAsync(profile, ct);
+
+        var (status, summaryKey) = DecideOutcome(failed, verification, encryptionResponds);
+        return new ApplyResult(status, summaryKey, steps, interfaceAlias);
     }
+
+    // Le controle de coherence ne compare que des textes : un modele DoH enregistre mais mort
+    // (Quad9 :5053, Verisign dns64) passait pour « applique et verifie ». L'ordre est volontaire :
+    // une commande qui echoue prime, puis l'etat incoherent, puis le point qui ne repond pas.
+    public static (ApplyStatus Status, string SummaryKey) DecideOutcome(int failedSteps, bool stateMatches, bool encryptionResponds) =>
+        failedSteps > 0 ? (ApplyStatus.Failed, "apply.failed")
+        : !stateMatches ? (ApplyStatus.PartialSuccess, "apply.verifyMismatch")
+        : !encryptionResponds ? (ApplyStatus.PartialSuccess, "apply.dohUnreachable")
+        : (ApplyStatus.Success, "apply.success");
 
     public async Task<ApplyResult> RestoreAsync(DnsRestorePlan plan, bool dryRun = false, CancellationToken ct = default)
     {

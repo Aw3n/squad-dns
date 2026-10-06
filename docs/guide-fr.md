@@ -189,7 +189,9 @@ et ouvre le lien de téléchargement. Elle **n'installe rien** à votre place.
   de laisser des serveurs en clair sous une politique « DoH exigé » que le système ignore. Sur ces systèmes,
   passez en mode **Non chiffré uniquement**.
 - **DoH dépend du réseau.** Certains opérateurs et réseaux d'entreprise bloquent le port 443 DNS ou
-  forcent un résolveur interne.
+  forcent un résolveur interne. Après application, Squad DNS envoie une vraie requête au point DoH qui vient
+  d'être enregistré : s'il ne répond pas, le message dit explicitement « le trafic DNS n'est pas réellement
+  chiffré » au lieu d'un « appliquée et vérifiée ».
 - **x64 uniquement**, Windows 10 1809 ou ultérieur.
 - **Une interface réseau par application.** Les autres cartes ne sont pas touchées.
 - **Aucune donnée de navigation n'est collectée.** Les tests envoient uniquement des requêtes DNS vers les

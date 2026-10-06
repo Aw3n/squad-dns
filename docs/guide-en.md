@@ -184,7 +184,9 @@ Always attach these files when reporting a problem.
   of leaving plain servers behind a "require DoH" policy the system ignores. On those systems, switch to
   **Unencrypted only**.
 - **DoH depends on your network.** Some ISPs and corporate networks block DNS over 443 or force an internal
-  resolver.
+  resolver. After applying, Squad DNS sends a real query to the DoH endpoint it just registered: if it does
+  not answer, the message says outright that "DNS traffic is not actually encrypted" instead of claiming the
+  configuration was applied and verified.
 - **x64 only**, Windows 10 version 1809 or later.
 - **One network adapter per apply.** Other cards are untouched.
 - **No browsing data is collected.** The tests only send DNS queries to the servers you chose.

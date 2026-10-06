@@ -217,6 +217,15 @@ public class DnsConfiguratorTests
     }
 
     [Fact]
+    public void Outcome_never_claims_success_when_the_doh_endpoint_does_not_answer()
+    {
+        Assert.Equal((ApplyStatus.Success, "apply.success"), DnsConfigurator.DecideOutcome(0, true, true));
+        Assert.Equal((ApplyStatus.PartialSuccess, "apply.dohUnreachable"), DnsConfigurator.DecideOutcome(0, true, false));
+        Assert.Equal((ApplyStatus.PartialSuccess, "apply.verifyMismatch"), DnsConfigurator.DecideOutcome(0, false, true));
+        Assert.Equal((ApplyStatus.Failed, "apply.failed"), DnsConfigurator.DecideOutcome(2, true, true));
+    }
+
+    [Fact]
     public void EncryptedOnly_never_writes_servers_after_a_failed_doh_registration()
     {
         var failed = new ApplyStep("registerDoh", "Add-DnsClientDohServerAddress ...", Executed: true, Success: false, Error: "not recognized");

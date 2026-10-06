@@ -64,6 +64,7 @@
     <s:String x:Key="elevation.button">Relancer en administrateur</s:String>
     <s:String x:Key="apply.success">Configuration appliquée et vérifiée.</s:String>
     <s:String x:Key="apply.verifyMismatch">Commandes appliquées mais la vérification est incomplète.</s:String>
+    <s:String x:Key="apply.dohUnreachable">Configuration écrite, mais le point DoH ne répond pas : le trafic DNS n’est pas réellement chiffré.</s:String>
     <s:String x:Key="apply.partial">Appliqué partiellement.</s:String>
     <s:String x:Key="apply.failed">Échec de l’application.</s:String>
     <s:String x:Key="apply.dryRun">Aperçu généré, aucune écriture.</s:String>

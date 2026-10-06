@@ -64,6 +64,7 @@
     <s:String x:Key="elevation.button">Relaunch as administrator</s:String>
     <s:String x:Key="apply.success">Configuration applied and verified.</s:String>
     <s:String x:Key="apply.verifyMismatch">Commands applied but verification is incomplete.</s:String>
+    <s:String x:Key="apply.dohUnreachable">Configuration written, but the DoH endpoint does not answer: DNS traffic is not actually encrypted.</s:String>
     <s:String x:Key="apply.partial">Partially applied.</s:String>
     <s:String x:Key="apply.failed">Apply failed.</s:String>
     <s:String x:Key="apply.dryRun">Preview generated, nothing written.</s:String>
