@@ -69,6 +69,7 @@
     <s:String x:Key="restore.success">Configuration restored and verified.</s:String>
     <s:String x:Key="apply.verifyMismatch">Commands applied but verification is incomplete.</s:String>
     <s:String x:Key="apply.dohUnreachable">Configuration written, but the DoH endpoint does not answer: DNS traffic is not actually encrypted.</s:String>
+    <s:String x:Key="apply.plainFallback">Servers applied WITHOUT encryption: this Windows (10 or 11 before 22H2) has no native DoH/DoT client.</s:String>
     <s:String x:Key="apply.partial">Partially applied.</s:String>
     <s:String x:Key="apply.failed">Apply failed.</s:String>
     <s:String x:Key="apply.dryRun">Preview generated, nothing written.</s:String>

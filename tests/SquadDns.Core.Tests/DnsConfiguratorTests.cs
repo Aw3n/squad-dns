@@ -228,6 +228,23 @@ public class DnsConfiguratorTests
     }
 
     [Fact]
+    public async Task Encrypted_preferred_falls_back_to_plain_when_the_cmdlets_are_missing()
+    {
+        // Windows 10 : « chiffre de preference » accepte le repli, donc on applique les
+        // serveurs en clair sous politique desactivee (valeur 1), jamais en pretendant
+        // le chiffrement. Aucune applet DoH ne doit apparaitre.
+        var shell = new FakeShell { CapabilityProbeOutput = "no" };
+        var configurator = new DnsConfigurator(shell, new FakeRegistry());
+
+        var result = await configurator.ApplyAsync(Cloudflare, 4, "Ethernet", DnsSecurityMode.EncryptedPreferred, dryRun: true);
+
+        Assert.Equal(ApplyStatus.DryRun, result.Status);
+        Assert.Equal(new[] { "setServers", "setPolicy", "flushCache" }, result.Steps.Select(s => s.Name));
+        Assert.Contains("-Value 1", result.Steps.Single(s => s.Name == "setPolicy").Command, StringComparison.Ordinal);
+        AssertNoMutatingScript(shell.Scripts);
+    }
+
+    [Fact]
     public async Task Encrypted_modes_refuse_to_write_anything_when_the_doh_cmdlets_are_missing()
     {
         var shell = new FakeShell { CapabilityProbeOutput = "no", DefaultOutput = NoDohEntries };
@@ -249,6 +266,14 @@ public class DnsConfiguratorTests
         Assert.Equal((ApplyStatus.PartialSuccess, "apply.dohUnreachable"), DnsConfigurator.DecideOutcome(0, true, false));
         Assert.Equal((ApplyStatus.PartialSuccess, "apply.verifyMismatch"), DnsConfigurator.DecideOutcome(0, false, true));
         Assert.Equal((ApplyStatus.Failed, "apply.failed"), DnsConfigurator.DecideOutcome(2, true, true));
+    }
+
+    [Fact]
+    public void Outcome_never_claims_encrypted_success_after_a_plain_fallback()
+    {
+        Assert.Equal((ApplyStatus.PartialSuccess, "apply.plainFallback"), DnsConfigurator.DecideOutcome(0, true, true, encryptionUnavailable: true));
+        Assert.Equal((ApplyStatus.Failed, "apply.failed"), DnsConfigurator.DecideOutcome(1, true, true, encryptionUnavailable: true));
+        Assert.Equal((ApplyStatus.PartialSuccess, "apply.verifyMismatch"), DnsConfigurator.DecideOutcome(0, false, true, encryptionUnavailable: true));
     }
 
     [Fact]

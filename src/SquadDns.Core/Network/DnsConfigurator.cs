@@ -137,12 +137,19 @@ public sealed class DnsConfigurator
             return new ApplyResult(ApplyStatus.Failed, "apply.noServers", steps, interfaceAlias);
         }
 
-        // Windows 10 et Windows 11 avant 22H2 n'ont pas les applets DoH : la lecture revient vide, le plan
-        // choisit Add-, la commande n'existe pas, et les etapes suivantes ecrivaient des serveurs en clair
-        // sous une politique « DoH exige ». Refus avant la premiere ecriture et avant l'invite UAC.
-        if (mode != DnsSecurityMode.Unencrypted && !await SupportsDoHConfigurationAsync(ct))
+        // Windows 10 et Windows 11 avant 22H2 n'ont aucun client DoH/DoT natif : la lecture
+        // revient vide, le plan choisit Add-, et la politique DoHPolicy y est inerte. « DoH
+        // exige » reste un refus net. « Chiffre de preference » accepte le repli, donc on
+        // applique les serveurs en clair sous politique desactivee en le disant dans le bilan.
+        var encryptionUnavailable = mode != DnsSecurityMode.Unencrypted && !await SupportsDoHConfigurationAsync(ct);
+        if (encryptionUnavailable && mode == DnsSecurityMode.EncryptedOnly)
         {
             return new ApplyResult(ApplyStatus.Failed, "apply.dohUnsupported", steps, interfaceAlias);
+        }
+
+        if (encryptionUnavailable)
+        {
+            mode = DnsSecurityMode.Unencrypted;
         }
 
         if (!dryRun && !Elevation.IsElevated())
@@ -196,16 +203,19 @@ public sealed class DnsConfigurator
                                  confirmEncryptionAsync is null ||
                                  await confirmEncryptionAsync(profile, ct);
 
-        var (status, summaryKey) = DecideOutcome(failed, verification, encryptionResponds);
+        var (status, summaryKey) = DecideOutcome(failed, verification, encryptionResponds, encryptionUnavailable);
         return new ApplyResult(status, summaryKey, steps, interfaceAlias);
     }
 
     // Le controle de coherence ne compare que des textes : un modele DoH enregistre mais mort
     // (Quad9 :5053, Verisign dns64) passait pour « applique et verifie ». L'ordre est volontaire :
     // une commande qui echoue prime, puis l'etat incoherent, puis le point qui ne repond pas.
-    public static (ApplyStatus Status, string SummaryKey) DecideOutcome(int failedSteps, bool stateMatches, bool encryptionResponds) =>
+    // encryptionUnavailable = repli volontaire sur Windows sans client DoH : applique en clair,
+    // jamais annonce comme un succes chiffre.
+    public static (ApplyStatus Status, string SummaryKey) DecideOutcome(int failedSteps, bool stateMatches, bool encryptionResponds, bool encryptionUnavailable = false) =>
         failedSteps > 0 ? (ApplyStatus.Failed, "apply.failed")
         : !stateMatches ? (ApplyStatus.PartialSuccess, "apply.verifyMismatch")
+        : encryptionUnavailable ? (ApplyStatus.PartialSuccess, "apply.plainFallback")
         : !encryptionResponds ? (ApplyStatus.PartialSuccess, "apply.dohUnreachable")
         : (ApplyStatus.Success, "apply.success");
 
