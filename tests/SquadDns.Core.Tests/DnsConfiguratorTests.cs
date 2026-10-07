@@ -198,6 +198,23 @@ public class DnsConfiguratorTests
     }
 
     [Fact]
+    public async Task Restore_skips_the_doh_removal_when_the_cmdlets_are_missing()
+    {
+        // Windows 10 : la sauvegarde peut contenir des adresses DoH (cf. regression restauration
+        // en CommandNotFound sur build 18363). Rien n'ayant pu etre enregistre, la restauration
+        // ne doit planifier aucune applet DoH.
+        var shell = new FakeShell { CapabilityProbeOutput = "no" };
+        var configurator = new DnsConfigurator(shell, new FakeRegistry());
+        var plan = new DnsRestorePlan(4, "Ethernet", new[] { "10.0.0.1" }, UseDhcp: true, PreviousPolicy: null, new[] { "1.1.1.1" });
+
+        var result = await configurator.RestoreAsync(plan, dryRun: true);
+
+        Assert.Equal(ApplyStatus.DryRun, result.Status);
+        Assert.Equal(new[] { "resetDhcp", "restorePolicy", "flushCache" }, result.Steps.Select(s => s.Name));
+        AssertNoMutatingScript(shell.Scripts);
+    }
+
+    [Fact]
     public async Task Unencrypted_still_applies_where_the_doh_cmdlets_are_missing()
     {
         var shell = new FakeShell { CapabilityProbeOutput = "no" };

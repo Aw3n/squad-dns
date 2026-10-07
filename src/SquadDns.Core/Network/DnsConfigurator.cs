@@ -240,10 +240,16 @@ public sealed class DnsConfigurator
 
         steps.Add(await RunStepAsync("restorePolicy", policyScript, dryRun, ct));
 
-        foreach (var address in plan.AddedDohAddresses.Distinct(StringComparer.OrdinalIgnoreCase))
+        // Windows 10 n'a pas les applets DoH : rien n'a pu etre enregistre par cette application,
+        // donc la suppression est un CommandNotFound garanti que -ErrorAction ne supprime pas.
+        // Sans ce garde, chaque restauration echouait la-bas (regression de l'ajout removeDoh).
+        if (await SupportsDoHConfigurationAsync(ct))
         {
-            steps.Add(await RunStepAsync("removeDoh",
-                $"Remove-DnsClientDohServerAddress -ServerAddress {PowerShellShell.Quote(address)} -ErrorAction SilentlyContinue", dryRun, ct));
+            foreach (var address in plan.AddedDohAddresses.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                steps.Add(await RunStepAsync("removeDoh",
+                    $"Remove-DnsClientDohServerAddress -ServerAddress {PowerShellShell.Quote(address)} -ErrorAction SilentlyContinue", dryRun, ct));
+            }
         }
 
         steps.Add(await RunStepAsync("flushCache", "Clear-DnsClientCache", dryRun, ct));
@@ -256,23 +262,6 @@ public sealed class DnsConfigurator
         var stateMatches = await RestoreMatchesAsync(plan, ct);
         var (status, summaryKey) = DecideRestoreOutcome(steps.Count(s => !s.Success), stateMatches);
         return new ApplyResult(status, summaryKey, steps, plan.InterfaceAlias);
-    }
-
-    public async Task<ApplyResult> RemoveDohEntriesAsync(IEnumerable<string> addresses, bool dryRun = false, CancellationToken ct = default)
-    {
-        var steps = new List<ApplyStep>();
-        foreach (var address in addresses.Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            steps.Add(await RunStepAsync("removeDoh",
-                $"Remove-DnsClientDohServerAddress -ServerAddress {PowerShellShell.Quote(address)} -ErrorAction SilentlyContinue", dryRun, ct));
-        }
-
-        var failed = steps.Count(s => !s.Success);
-        return new ApplyResult(
-            dryRun ? ApplyStatus.DryRun : failed == 0 ? ApplyStatus.Success : ApplyStatus.Failed,
-            dryRun ? "apply.dryRun" : failed == 0 ? "apply.success" : "apply.failed",
-            steps,
-            null);
     }
 
     private async Task<bool> VerifyAsync(DnsProfile profile, int interfaceIndex, string[] expectedServers, int expectedPolicy, CancellationToken ct)

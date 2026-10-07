@@ -881,7 +881,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try
         {
             var state = await _configurator.ReadStateAsync(adapter.Index, adapter.Alias);
-            var backup = _backups.Capture(adapter.Adapter, state, profile, profile.ResolverAddresses);
+            // Sans applets DoH (Windows 10), aucune entree n'a pu etre enregistree : la conserver
+            // dans la sauvegarde empoisonnerait la restauration de la-bas (removeDoh en
+            // CommandNotFound). Le gate du configurator protege aussi, mais a la source c'est plus net.
+            var addedDoh = await _configurator.SupportsDoHConfigurationAsync()
+                ? profile.ResolverAddresses
+                : Array.Empty<string>();
+            var backup = _backups.Capture(adapter.Adapter, state, profile, addedDoh);
             ReloadBackups();
 
             if (!silent)
