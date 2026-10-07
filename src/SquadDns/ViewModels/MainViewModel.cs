@@ -58,6 +58,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _customDotServer = string.Empty;
     private string _customDotPort = "853";
     private bool _isBusy;
+    private bool _stepsExpanded;
     private bool _testsRunning;
     private bool _previewOnly;
     private double _testProgress;
@@ -89,7 +90,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Steps = new ObservableCollection<StepRow>();
 
         RefreshCommand = new AsyncRelayCommand(async _ => await RefreshAsync());
-        ApplyCommand = new AsyncRelayCommand(async parameter => await ApplyAsync(parameter as ProfileCard));
+        ApplyCommand = new AsyncRelayCommand(async parameter => await ApplyAsync(parameter as ProfileCard ?? SelectedProfile));
         TestProfileCommand = new AsyncRelayCommand(async parameter => await TestAsync(parameter as ProfileCard));
         TestAllCommand = new AsyncRelayCommand(async _ => await TestAllAsync());
         StopTestsCommand = new RelayCommand(_ => _runCancellation?.Cancel());
@@ -179,6 +180,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string OsText { get => _osText; private set => Set(ref _osText, value); }
 
     public bool IsBusy { get => _isBusy; private set => Set(ref _isBusy, value); }
+    public bool StepsExpanded { get => _stepsExpanded; set => Set(ref _stepsExpanded, value); }
     public bool TestsRunning { get => _testsRunning; private set => Set(ref _testsRunning, value); }
     public double TestProgress { get => _testProgress; private set => Set(ref _testProgress, value); }
 
@@ -453,7 +455,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         foreach (var card in AllProfiles)
         {
             card.IsCurrent = state.PolicyValue != 1
-                && state.Servers.Any(server => card.Profile.ResolverAddresses.Contains(server, StringComparer.OrdinalIgnoreCase));
+                && card.Profile.ResolverAddresses.All(address =>
+                    state.Servers.Contains(address, StringComparer.OrdinalIgnoreCase)
+                    && state.DohEntries.Any(entry =>
+                        string.Equals(entry.ServerAddress, address, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(entry.DohTemplate, card.Profile.DoHTemplate, StringComparison.OrdinalIgnoreCase)));
+
+            if (!card.IsCurrent)
+            {
+                card.DohEndpointUnreachable = false;
+            }
+        }
+
+        var current = AllProfiles.FirstOrDefault(card => card.IsCurrent);
+        if (current is not null)
+        {
+            var probe = await _tester.TestDoHAsync(current.Profile, Settings.TestDomain);
+            current.DohEndpointUnreachable = !probe.Success;
         }
 
         Raise(nameof(ElevationText), nameof(ShowElevationBanner));
@@ -556,6 +574,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        SelectedProfile = card;
+
         if (_selectedAdapter is null)
         {
             SetStatus(LocalizationManager.T("status.noAdapter"), StatusLevel.Error);
@@ -592,6 +612,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 result = elevated;
             }
 
+            card.DohEndpointUnreachable = result.SummaryKey == "apply.dohUnreachable";
             ShowSteps(result);
 
             // Sans le detail des etapes en echec, le journal dit seulement « Failed » et la faute reste
@@ -623,6 +644,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             Steps.Add(new StepRow(step));
         }
+
+        StepsExpanded = result.Steps.Any(step => !step.Success);
 
         var message = LocalizationManager.T(result.SummaryKey);
         if (!string.IsNullOrEmpty(result.Detail))

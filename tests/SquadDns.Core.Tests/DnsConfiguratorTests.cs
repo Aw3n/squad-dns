@@ -151,9 +151,18 @@ public class DnsConfiguratorTests
         var result = await configurator.RestoreAsync(plan, dryRun: true);
 
         Assert.Equal(ApplyStatus.DryRun, result.Status);
-        Assert.Equal(new[] { "resetDhcp", "restorePolicy", "flushCache" }, result.Steps.Select(s => s.Name));
+        Assert.Equal(new[] { "resetDhcp", "restorePolicy", "removeDoh", "flushCache" }, result.Steps.Select(s => s.Name));
         Assert.Equal("Set-DnsClientServerAddress -InterfaceIndex 4 -ResetServerAddresses", result.Steps[0].Command);
         Assert.Contains("Remove-ItemProperty", result.Steps[1].Command, StringComparison.Ordinal);
+        Assert.Equal("Remove-DnsClientDohServerAddress -ServerAddress '1.1.1.1' -ErrorAction SilentlyContinue", result.Steps[2].Command);
+    }
+
+    [Fact]
+    public void Restore_outcome_never_claims_success_after_a_failed_step_or_mismatch()
+    {
+        Assert.Equal((ApplyStatus.Success, "restore.success"), DnsConfigurator.DecideRestoreOutcome(0, true));
+        Assert.Equal((ApplyStatus.PartialSuccess, "apply.verifyMismatch"), DnsConfigurator.DecideRestoreOutcome(0, false));
+        Assert.Equal((ApplyStatus.Failed, "apply.failed"), DnsConfigurator.DecideRestoreOutcome(1, true));
     }
 
     [Fact]

@@ -41,6 +41,7 @@ public sealed class ProfileCard : ObservableObject
     private string? _note;
     private bool _isTesting;
     private bool _isCurrent;
+    private bool _dohEndpointUnreachable;
     private int _successCount;
     private int _totalCount;
 
@@ -118,7 +119,10 @@ public sealed class ProfileCard : ObservableObject
 
     public bool HasNote => !string.IsNullOrEmpty(_note);
     public bool IsTesting { get => _isTesting; set => Set(ref _isTesting, value); }
-    public bool IsCurrent { get => _isCurrent; set => Set(ref _isCurrent, value); }
+    public bool IsCurrent { get => _isCurrent; set { if (Set(ref _isCurrent, value)) Raise(nameof(ShowCurrent), nameof(ShowDohEndpointUnreachable)); } }
+    public bool DohEndpointUnreachable { get => _dohEndpointUnreachable; set { if (Set(ref _dohEndpointUnreachable, value)) Raise(nameof(ShowCurrent), nameof(ShowDohEndpointUnreachable)); } }
+    public bool ShowCurrent => IsCurrent && !DohEndpointUnreachable;
+    public bool ShowDohEndpointUnreachable => IsCurrent && DohEndpointUnreachable;
     public bool HasResult => _medianDoH is not null || _medianPlain is not null;
 
     public string TestSummary

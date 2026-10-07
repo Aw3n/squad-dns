@@ -33,6 +33,7 @@
     <s:String x:Key="library.title">Choisissez un service DNS</s:String>
     <s:String x:Key="library.subtitle">DoH et DoT prédéfinis, application en un clic</s:String>
     <s:String x:Key="library.apply">Appliquer</s:String>
+    <s:String x:Key="library.applySelected">Appliquer le service sélectionné</s:String>
     <s:String x:Key="library.applyTip">Enregistre une sauvegarde puis configure l’interface</s:String>
     <s:String x:Key="library.test">Tester</s:String>
     <s:String x:Key="library.details">Informations</s:String>
@@ -47,6 +48,7 @@
     <s:String x:Key="library.backupBefore">Sauvegarder avant d’appliquer</s:String>
     <s:String x:Key="library.dryRun">Aperçu sans écrire (à sec)</s:String>
     <s:String x:Key="library.preview.title">Commandes prévues</s:String>
+    <s:String x:Key="library.preview.details">Détails</s:String>
     <s:String x:Key="library.preview.hint">Aucune modification n’a été appliquée</s:String>
     <s:String x:Key="library.step">Étape</s:String>
     <s:String x:Key="library.tags.ads">Bloque les pubs</s:String>
@@ -59,10 +61,12 @@
     <s:String x:Key="library.dot">DoT</s:String>
     <s:String x:Key="library.servers">Serveurs</s:String>
     <s:String x:Key="library.current">Actuellement appliqué</s:String>
+    <s:String x:Key="library.tags.dohUnreachable">DoH injoignable</s:String>
 
     <s:String x:Key="elevation.banner">Les droits administrateur sont requis pour écrire la configuration réseau.</s:String>
     <s:String x:Key="elevation.button">Relancer en administrateur</s:String>
     <s:String x:Key="apply.success">Configuration appliquée et vérifiée.</s:String>
+    <s:String x:Key="restore.success">Configuration restaurée et vérifiée.</s:String>
     <s:String x:Key="apply.verifyMismatch">Commandes appliquées mais la vérification est incomplète.</s:String>
     <s:String x:Key="apply.dohUnreachable">Configuration écrite, mais le point DoH ne répond pas : le trafic DNS n’est pas réellement chiffré.</s:String>
     <s:String x:Key="apply.partial">Appliqué partiellement.</s:String>

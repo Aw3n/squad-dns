@@ -33,6 +33,7 @@
     <s:String x:Key="library.title">Choose a DNS service</s:String>
     <s:String x:Key="library.subtitle">Ready-made DoH and DoT, one-click apply</s:String>
     <s:String x:Key="library.apply">Apply</s:String>
+    <s:String x:Key="library.applySelected">Apply selected service</s:String>
     <s:String x:Key="library.applyTip">Stores a backup then configures the adapter</s:String>
     <s:String x:Key="library.test">Test</s:String>
     <s:String x:Key="library.details">Information</s:String>
@@ -47,6 +48,7 @@
     <s:String x:Key="library.backupBefore">Back up before applying</s:String>
     <s:String x:Key="library.dryRun">Preview without writing (dry run)</s:String>
     <s:String x:Key="library.preview.title">Planned commands</s:String>
+    <s:String x:Key="library.preview.details">Details</s:String>
     <s:String x:Key="library.preview.hint">No change was applied</s:String>
     <s:String x:Key="library.step">Step</s:String>
     <s:String x:Key="library.tags.ads">Blocks ads</s:String>
@@ -59,10 +61,12 @@
     <s:String x:Key="library.dot">DoT</s:String>
     <s:String x:Key="library.servers">Servers</s:String>
     <s:String x:Key="library.current">Currently applied</s:String>
+    <s:String x:Key="library.tags.dohUnreachable">DoH unreachable</s:String>
 
     <s:String x:Key="elevation.banner">Administrator rights are required to write the network configuration.</s:String>
     <s:String x:Key="elevation.button">Relaunch as administrator</s:String>
     <s:String x:Key="apply.success">Configuration applied and verified.</s:String>
+    <s:String x:Key="restore.success">Configuration restored and verified.</s:String>
     <s:String x:Key="apply.verifyMismatch">Commands applied but verification is incomplete.</s:String>
     <s:String x:Key="apply.dohUnreachable">Configuration written, but the DoH endpoint does not answer: DNS traffic is not actually encrypted.</s:String>
     <s:String x:Key="apply.partial">Partially applied.</s:String>

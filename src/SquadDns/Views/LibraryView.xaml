@@ -15,8 +15,21 @@
         </Grid.RowDefinitions>
 
         <StackPanel Margin="0,0,0,14">
-            <TextBlock Text="{DynamicResource library.title}" Style="{StaticResource Title.Text}" />
-            <TextBlock Text="{DynamicResource library.subtitle}" Style="{StaticResource Muted.Text}" Margin="0,2,0,12" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource library.title}" Style="{StaticResource Title.Text}" />
+                    <TextBlock Text="{DynamicResource library.subtitle}" Style="{StaticResource Muted.Text}" Margin="0,2,0,12" />
+                </StackPanel>
+                <Button Grid.Column="1" Style="{StaticResource Primary.Button}"
+                        Content="{DynamicResource library.applySelected}"
+                        ToolTip="{DynamicResource library.applyTip}"
+                        Command="{Binding ApplyCommand}"
+                        VerticalAlignment="Center" />
+            </Grid>
 
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -119,8 +132,14 @@
                             <Border Margin="10,0,0,0" Padding="8,2" CornerRadius="999"
                                     Background="{DynamicResource Brush.NeonDim}" BorderThickness="1"
                                     BorderBrush="{DynamicResource Brush.Neon}"
-                                    Visibility="{Binding IsCurrent, Converter={StaticResource BoolToVis}}">
+                                    Visibility="{Binding ShowCurrent, Converter={StaticResource BoolToVis}}">
                                 <TextBlock Text="{DynamicResource library.current}" FontSize="10" Foreground="{DynamicResource Brush.Neon}" />
+                            </Border>
+                            <Border Margin="10,0,0,0" Padding="8,2" CornerRadius="999"
+                                    Background="{DynamicResource Brush.SurfaceAlt}" BorderThickness="1"
+                                    BorderBrush="{DynamicResource Brush.Red}"
+                                    Visibility="{Binding ShowDohEndpointUnreachable, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="{DynamicResource library.tags.dohUnreachable}" FontSize="10" Foreground="{DynamicResource Brush.Red}" />
                             </Border>
                         </StackPanel>
 
@@ -189,8 +208,18 @@
         <Border Grid.Row="2" Style="{StaticResource Card.Border}" Margin="0,14,0,0"
                 Visibility="{Binding Steps.Count, Converter={StaticResource CountVisible}}">
             <StackPanel>
-                <TextBlock Text="{DynamicResource library.preview.title}" Style="{StaticResource Section.Text}" />
-                <ItemsControl ItemsSource="{Binding Steps}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{DynamicResource library.preview.title}" Style="{StaticResource Section.Text}" />
+                    <ToggleButton Grid.Column="1" Style="{StaticResource Segment.ToggleButton}"
+                                  Content="{DynamicResource library.preview.details}"
+                                  IsChecked="{Binding StepsExpanded, Mode=TwoWay}" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding Steps}"
+                              Visibility="{Binding StepsExpanded, Converter={StaticResource BoolToVis}}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <!-- Une grille et non un StackPanel horizontal : dans un StackPanel horizontal, la
@@ -227,7 +256,8 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <TextBlock Text="{DynamicResource library.preview.hint}" Style="{StaticResource Muted.Text}" Margin="0,6,0,0" />
+                <TextBlock Text="{DynamicResource library.preview.hint}" Style="{StaticResource Muted.Text}" Margin="0,6,0,0"
+                           Visibility="{Binding StepsExpanded, Converter={StaticResource BoolToVis}}" />
             </StackPanel>
         </Border>
     </Grid>

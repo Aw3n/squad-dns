@@ -209,6 +209,11 @@ public sealed class DnsConfigurator
         : !encryptionResponds ? (ApplyStatus.PartialSuccess, "apply.dohUnreachable")
         : (ApplyStatus.Success, "apply.success");
 
+    public static (ApplyStatus Status, string SummaryKey) DecideRestoreOutcome(int failedSteps, bool stateMatches) =>
+        failedSteps > 0 ? (ApplyStatus.Failed, "apply.failed")
+        : !stateMatches ? (ApplyStatus.PartialSuccess, "apply.verifyMismatch")
+        : (ApplyStatus.Success, "restore.success");
+
     public async Task<ApplyResult> RestoreAsync(DnsRestorePlan plan, bool dryRun = false, CancellationToken ct = default)
     {
         var steps = new List<ApplyStep>();
@@ -234,22 +239,40 @@ public sealed class DnsConfigurator
             : $"New-ItemProperty -Path 'HKLM:\\{PolicyKey}' -Name {PolicyValueName} -PropertyType DWord -Value {plan.PreviousPolicy.Value} -Force | Out-Null";
 
         steps.Add(await RunStepAsync("restorePolicy", policyScript, dryRun, ct));
-        steps.Add(await RunStepAsync("flushCache", "Clear-DnsClientCache", dryRun, ct));
 
-        return new ApplyResult(dryRun ? ApplyStatus.DryRun : ApplyStatus.Success,
-            dryRun ? "apply.dryRun" : "restore.success", steps, plan.InterfaceAlias);
-    }
-
-    public async Task<ApplyResult> RemoveDohEntriesAsync(IEnumerable<string> addresses, bool dryRun = false, CancellationToken ct = default)
-    {
-        var steps = new List<ApplyStep>();
-        foreach (var address in addresses)
+        foreach (var address in plan.AddedDohAddresses.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             steps.Add(await RunStepAsync("removeDoh",
                 $"Remove-DnsClientDohServerAddress -ServerAddress {PowerShellShell.Quote(address)} -ErrorAction SilentlyContinue", dryRun, ct));
         }
 
-        return new ApplyResult(ApplyStatus.Success, "apply.success", steps, null);
+        steps.Add(await RunStepAsync("flushCache", "Clear-DnsClientCache", dryRun, ct));
+
+        if (dryRun)
+        {
+            return new ApplyResult(ApplyStatus.DryRun, "apply.dryRun", steps, plan.InterfaceAlias);
+        }
+
+        var stateMatches = await RestoreMatchesAsync(plan, ct);
+        var (status, summaryKey) = DecideRestoreOutcome(steps.Count(s => !s.Success), stateMatches);
+        return new ApplyResult(status, summaryKey, steps, plan.InterfaceAlias);
+    }
+
+    public async Task<ApplyResult> RemoveDohEntriesAsync(IEnumerable<string> addresses, bool dryRun = false, CancellationToken ct = default)
+    {
+        var steps = new List<ApplyStep>();
+        foreach (var address in addresses.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            steps.Add(await RunStepAsync("removeDoh",
+                $"Remove-DnsClientDohServerAddress -ServerAddress {PowerShellShell.Quote(address)} -ErrorAction SilentlyContinue", dryRun, ct));
+        }
+
+        var failed = steps.Count(s => !s.Success);
+        return new ApplyResult(
+            dryRun ? ApplyStatus.DryRun : failed == 0 ? ApplyStatus.Success : ApplyStatus.Failed,
+            dryRun ? "apply.dryRun" : failed == 0 ? "apply.success" : "apply.failed",
+            steps,
+            null);
     }
 
     private async Task<bool> VerifyAsync(DnsProfile profile, int interfaceIndex, string[] expectedServers, int expectedPolicy, CancellationToken ct)
@@ -268,6 +291,19 @@ public sealed class DnsConfigurator
             && e.DohTemplate.Contains(HostOf(profile.DoHTemplate), StringComparison.OrdinalIgnoreCase)));
 
         return serversOk && policyOk && dohOk;
+    }
+
+    private async Task<bool> RestoreMatchesAsync(DnsRestorePlan plan, CancellationToken ct)
+    {
+        var state = await ReadStateAsync(plan.InterfaceIndex, plan.InterfaceAlias, ct);
+        var allDohEntries = await ReadDohEntriesAsync(ct);
+        var policyOk = state.PolicyValue == plan.PreviousPolicy;
+        var serversOk = plan.UseDhcp || plan.Servers.All(address =>
+            state.Servers.Contains(address, StringComparer.OrdinalIgnoreCase));
+        var removedDoh = plan.AddedDohAddresses.All(address =>
+            allDohEntries.All(entry => !string.Equals(entry.ServerAddress, address, StringComparison.OrdinalIgnoreCase)));
+
+        return policyOk && serversOk && removedDoh;
     }
 
     private static string HostOf(string template)
