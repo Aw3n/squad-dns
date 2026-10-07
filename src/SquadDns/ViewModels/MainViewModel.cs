@@ -398,33 +398,49 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    // Apres un redemarrage, le systeme DNS pointe toujours vers 127.0.0.1 mais le processus
-    // proxy est mort : on le relance pour que le chiffrement reprenne sans action de
-    // l'utilisateur. Sans ce rappel, le poste resterait en DNS clair vers la boucle locale.
+    // Apres un redemarrage — ou un crash entre l'apply et le demarrage du relais — le systeme
+    // DNS pointe vers 127.0.0.1 mais aucun proxy ne tourne : le poste aurait un resolveur mort.
+    // On relance le relais detache, en retrouvant le profil par l'etat, puis par l'intention
+    // laissee a l'activation, puis par le dernier profil applique (un DNS en boucle locale ne
+    // peut venir que d'un apply en mode proxy).
     private async Task ResumeLocalProxyAsync()
     {
-        var state = ProxyStateStore.Read(_paths.ProxyStateFile);
-        if (state is null || ProxyStateStore.IsProcessAlive(state.ProcessId) || _selectedAdapter is null)
+        if (_selectedAdapter is null)
         {
             return;
+        }
+
+        var state = ProxyStateStore.Read(_paths.ProxyStateFile);
+        if (state is not null && ProxyStateStore.IsProcessAlive(state.ProcessId))
+        {
+            return; // le relais tourne deja
         }
 
         var current = await _configurator.ReadStateAsync(_selectedAdapter.Index, _selectedAdapter.Alias);
         if (!current.Servers.Contains(LocalDnsProxy.LoopbackAddress, StringComparer.OrdinalIgnoreCase))
         {
-            ProxyStateStore.Clear(_paths.ProxyStateFile);
+            if (state is not null)
+            {
+                ProxyStateStore.Clear(_paths.ProxyStateFile);
+            }
+
             return;
         }
 
-        var profile = ProviderCatalog.Find(state.ProfileId) ?? LoadCustomProfile();
+        var profileId = state?.ProfileId ?? Settings.LastProxyProfileId ?? Settings.LastProfileId;
+        var mode = state?.ModeValue
+                   ?? (Enum.TryParse<DnsSecurityMode>(Settings.LastProxyMode, out var remembered) ? remembered : Settings.Mode);
+
+        var profile = profileId is null ? null : ProviderCatalog.Find(profileId) ?? LoadCustomProfile();
         if (profile is null)
         {
             ProxyStateStore.Clear(_paths.ProxyStateFile);
+            _log.Write("proxy", "system DNS points at 127.0.0.1 but no proxy profile is known: apply or restore");
             return;
         }
 
-        StartDetachedProxy(profile, state.ModeValue);
-        _log.Write("proxy", $"resumed after reboot for {profile.Id}");
+        StartDetachedProxy(profile, mode);
+        _log.Write("proxy", $"resumed for {profile.Id} ({mode})");
     }
 
     public async Task RefreshAsync()
@@ -775,6 +791,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         if (await WaitForProxyStateAsync() && await LocalDnsProxy.ProbeAsync(Settings.TestDomain))
         {
+            // Intention laissee pour l'auto-reparation au prochain demarrage : si le processus
+            // meurt entre l'apply et ici, le fichier d'etat n'existe pas encore.
+            Settings.LastProxyProfileId = profile.Id;
+            Settings.LastProxyMode = mode.ToString();
+            Persist();
             _log.Write("proxy", $"active for {profile.Id} ({mode})");
             return applyResult;
         }

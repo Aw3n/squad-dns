@@ -41,6 +41,8 @@ public sealed class AppSettings
     public int TestSampleCount { get; set; } = 5;
     public string TestDomain { get; set; } = "example.com";
     public string? LastProfileId { get; set; }
+    public string? LastProxyProfileId { get; set; }
+    public string? LastProxyMode { get; set; }
     public bool UpdatesEnabled { get; set; }
     public string UpdateFeedUrl { get; set; } = string.Empty;
     public bool AcceptDotLimitation { get; set; }

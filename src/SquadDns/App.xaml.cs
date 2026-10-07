@@ -252,7 +252,7 @@ public partial class App : Application
             return;
         }
 
-        IDnsUpstream primary = new DohUpstream(profile.DoHTemplate);
+        IDnsUpstream primary = new DohUpstream(profile.DoHTemplate, profile.ResolverAddresses);
         IDnsUpstream? fallback = null;
 
         if (Enum.TryParse<DnsSecurityMode>(args[2], true, out var proxyMode)

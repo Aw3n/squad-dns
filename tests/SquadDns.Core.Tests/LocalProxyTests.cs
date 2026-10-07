@@ -24,6 +24,32 @@ public class LocalProxyTests
         public Task<byte[]?> QueryAsync(byte[] query, CancellationToken ct) => Task.FromResult<byte[]?>(null);
     }
 
+    private sealed class FixedUpstream : IDnsUpstream
+    {
+        private readonly byte[] _response;
+
+        public FixedUpstream(byte[] response) => _response = response;
+
+        public Task<byte[]?> QueryAsync(byte[] query, CancellationToken ct) => Task.FromResult<byte[]?>(_response);
+    }
+
+    // Reponse A minimale : la question en echo, drapeaux de reponse, une adresse en section
+    // reponse pointee vers le nom de la question (0xC00C).
+    private static byte[] BuildAResponse(string host, string address)
+    {
+        var response = DnsWire.BuildQuery(host, DnsRecordType.A);
+        response[2] = 0x81;
+        response[3] = 0x80;
+        response[7] = 1; // ancount
+
+        var ip = IPAddress.Parse(address).GetAddressBytes();
+        var answer = new byte[] { 0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x04, ip[0], ip[1], ip[2], ip[3] };
+        var message = new byte[response.Length + answer.Length];
+        Buffer.BlockCopy(response, 0, message, 0, response.Length);
+        Buffer.BlockCopy(answer, 0, message, response.Length, answer.Length);
+        return message;
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         private readonly Func<HttpRequestMessage, HttpResponseMessage> _respond;
@@ -49,7 +75,7 @@ public class LocalProxyTests
     public async Task DohUpstream_posts_a_dns_message_over_h2()
     {
         var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[] { 1, 2, 3 }) });
-        var upstream = new DohUpstream("https://dns.example/dns-query", new HttpClient(handler));
+        var upstream = new DohUpstream("https://dns.example/dns-query", Array.Empty<string>(), new HttpClient(handler));
 
         var result = await upstream.QueryAsync(new byte[] { 9, 8, 7 }, CancellationToken.None);
 
@@ -62,7 +88,7 @@ public class LocalProxyTests
     public async Task DohUpstream_returns_null_when_the_endpoint_refuses()
     {
         var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
-        var upstream = new DohUpstream("https://dns.example/dns-query", new HttpClient(handler));
+        var upstream = new DohUpstream("https://dns.example/dns-query", Array.Empty<string>(), new HttpClient(handler));
 
         Assert.Null(await upstream.QueryAsync(new byte[] { 1 }, CancellationToken.None));
     }
@@ -70,7 +96,40 @@ public class LocalProxyTests
     [Fact]
     public async Task DohUpstream_never_throws_on_network_failure()
     {
-        var upstream = new DohUpstream("https://dns.example/dns-query", new HttpClient(new ThrowingHandler()));
+        var upstream = new DohUpstream("https://dns.example/dns-query", Array.Empty<string>(), new HttpClient(new ThrowingHandler()));
+
+        Assert.Null(await upstream.QueryAsync(new byte[] { 1 }, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DohUpstream_resolves_its_endpoint_through_the_bootstrap_resolver()
+    {
+        // Le resolveur systeme peut etre le proxy lui-meme (127.0.0.1) : l'adresse du point
+        // DoH doit venir du bootstrap UDP direct, jamais de la resolution systeme.
+        var bootstrap = new FixedUpstream(BuildAResponse("dns.example", "93.184.216.34"));
+        var upstream = new DohUpstream("https://dns.example/dns-query", Array.Empty<string>(), bootstrapResolver: bootstrap);
+
+        var endpoints = await upstream.ResolveEndpointsAsync(new DnsEndPoint("dns.example", 443), CancellationToken.None);
+
+        Assert.Equal(IPAddress.Parse("93.184.216.34"), Assert.Single(endpoints).Address);
+    }
+
+    [Fact]
+    public async Task DohUpstream_uses_a_literal_address_without_any_bootstrap()
+    {
+        var upstream = new DohUpstream("https://1.1.1.1/dns-query", Array.Empty<string>(), bootstrapResolver: new NullUpstream());
+
+        var endpoints = await upstream.ResolveEndpointsAsync(new DnsEndPoint("1.1.1.1", 443), CancellationToken.None);
+
+        Assert.Equal(IPAddress.Parse("1.1.1.1"), Assert.Single(endpoints).Address);
+    }
+
+    [Fact]
+    public async Task DohUpstream_returns_null_when_no_bootstrap_route_exists()
+    {
+        // Bootstrap muet et aucun client injecte : la connexion doit echouer proprement
+        // (pas de repli sur le resolveur systeme, qui bouclerait sur le proxy).
+        var upstream = new DohUpstream("https://dns.example/dns-query", Array.Empty<string>(), bootstrapResolver: new NullUpstream());
 
         Assert.Null(await upstream.QueryAsync(new byte[] { 1 }, CancellationToken.None));
     }

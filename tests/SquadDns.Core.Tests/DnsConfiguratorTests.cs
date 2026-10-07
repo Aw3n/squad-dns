@@ -284,6 +284,18 @@ public class DnsConfiguratorTests
     }
 
     [Fact]
+    public void Proxy_mode_defers_the_doh_probe_to_the_interface()
+    {
+        // En mode proxy, la sonde DoH de l'apply tournerait contre un resolveur systeme deja
+        // pointe vers 127.0.0.1 sans relais : c'est l'interface qui sonde a travers le proxy.
+        Assert.False(DnsConfigurator.NeedsEncryptionProbe(DnsSecurityMode.EncryptedPreferred, localProxy: true));
+        Assert.False(DnsConfigurator.NeedsEncryptionProbe(DnsSecurityMode.EncryptedOnly, localProxy: true));
+        Assert.False(DnsConfigurator.NeedsEncryptionProbe(DnsSecurityMode.Unencrypted, localProxy: false));
+        Assert.True(DnsConfigurator.NeedsEncryptionProbe(DnsSecurityMode.EncryptedPreferred, localProxy: false));
+        Assert.True(DnsConfigurator.NeedsEncryptionProbe(DnsSecurityMode.EncryptedOnly, localProxy: false));
+    }
+
+    [Fact]
     public void EncryptedOnly_never_writes_servers_after_a_failed_doh_registration()
     {
         var failed = new ApplyStep("registerDoh", "Add-DnsClientDohServerAddress ...", Executed: true, Success: false, Error: "not recognized");

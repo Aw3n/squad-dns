@@ -193,14 +193,21 @@ public sealed class DnsConfigurator
         var verification = await VerifyAsync(profile, interfaceIndex, addresses, policy, ct);
         var failed = steps.Count(s => !s.Success);
 
-        // Sans sonde fournie, on reste sur la coherence du registre : c'est ce que verifiait l'ancien code.
-        var encryptionResponds = mode == DnsSecurityMode.Unencrypted ||
+        // En mode proxy, le resolveur systeme pointe deja vers 127.0.0.1 ou rien n'ecoute
+        // encore (le relais demarre juste apres cet apply) : une sonde DoH echouerait a coup
+        // sur et bloquerait le demarrage meme qui la ferait passer. Le controle de bout en
+        // bout est la resolution a travers le proxy qu'exige l'interface ensuite, avec
+        // restauration de la sauvegarde de securite si elle echoue.
+        var encryptionResponds = !NeedsEncryptionProbe(mode, localProxy) ||
                                  confirmEncryptionAsync is null ||
                                  await confirmEncryptionAsync(profile, ct);
 
         var (status, summaryKey) = DecideOutcome(failed, verification, encryptionResponds, localProxy);
         return new ApplyResult(status, summaryKey, steps, interfaceAlias, localProxy);
     }
+
+    public static bool NeedsEncryptionProbe(DnsSecurityMode mode, bool localProxy) =>
+        mode != DnsSecurityMode.Unencrypted && !localProxy;
 
     // Le controle de coherence ne compare que des textes : un modele DoH enregistre mais mort
     // (Quad9 :5053, Verisign dns64) passait pour « applique et verifie ». L'ordre est volontaire :
