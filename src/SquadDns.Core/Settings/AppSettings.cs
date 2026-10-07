@@ -11,6 +11,7 @@ public sealed class AppPaths
     public string Backups { get; }
     public string SettingsFile { get; }
     public string LastApplyFile { get; }
+    public string ProxyStateFile { get; }
 
     public AppPaths(string? overrideRoot = null)
     {
@@ -20,6 +21,7 @@ public sealed class AppPaths
         Backups = Path.Combine(Root, "backups");
         SettingsFile = Path.Combine(Root, "settings.json");
         LastApplyFile = Path.Combine(Root, "last-apply.json");
+        ProxyStateFile = Path.Combine(Root, "proxy-state.json");
 
         Directory.CreateDirectory(Root);
         Directory.CreateDirectory(Logs);

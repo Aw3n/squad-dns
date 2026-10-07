@@ -24,6 +24,7 @@
     <s:String x:Key="status.fallback">Repli non chiffré possible</s:String>
     <s:String x:Key="status.plain">Non chiffré</s:String>
     <s:String x:Key="status.unknown">État inconnu</s:String>
+    <s:String x:Key="status.localProxy">Chiffré via proxy local Squad DNS</s:String>
 
     <s:String x:Key="policy.require">DoH exigé</s:String>
     <s:String x:Key="policy.auto">DoH automatique</s:String>
@@ -66,16 +67,16 @@
     <s:String x:Key="elevation.banner">Les droits administrateur sont requis pour écrire la configuration réseau.</s:String>
     <s:String x:Key="elevation.button">Relancer en administrateur</s:String>
     <s:String x:Key="apply.success">Configuration appliquée et vérifiée.</s:String>
+    <s:String x:Key="apply.localProxy">Chiffrement actif : Squad DNS relaie les requêtes en DoH via le proxy local 127.0.0.1.</s:String>
     <s:String x:Key="restore.success">Configuration restaurée et vérifiée.</s:String>
     <s:String x:Key="apply.verifyMismatch">Commandes appliquées mais la vérification est incomplète.</s:String>
     <s:String x:Key="apply.dohUnreachable">Configuration écrite, mais le point DoH ne répond pas : le trafic DNS n’est pas réellement chiffré.</s:String>
-    <s:String x:Key="apply.plainFallback">Serveurs appliqués SANS chiffrement : ce Windows (10 ou 11 avant 22H2) ne fournit pas de client DoH/DoT natif.</s:String>
+    <s:String x:Key="apply.localProxyFailed">Le proxy local ne résout pas : la configuration précédente a été restaurée, rien n’est chiffré.</s:String>
     <s:String x:Key="apply.partial">Appliqué partiellement.</s:String>
     <s:String x:Key="apply.failed">Échec de l’application.</s:String>
     <s:String x:Key="apply.dryRun">Aperçu généré, aucune écriture.</s:String>
     <s:String x:Key="apply.needsElevation">Élévation requise.</s:String>
     <s:String x:Key="apply.noServers">Aucune adresse serveur pour ce service.</s:String>
-    <s:String x:Key="apply.dohUnsupported">Ce Windows ne fournit pas les applets DNS sur HTTPS : Windows 11 22H2 ou plus récent est requis. Aucune modification n’a été écrite.</s:String>
     <s:String x:Key="apply.dohRegistrationFailed">Enregistrement DoH refusé : le chiffrement exigé n’a pas pu être configuré, les serveurs DNS n’ont pas été modifiés.</s:String>
     <s:String x:Key="apply.elevationCanceled">Élévation annulée.</s:String>
     <s:String x:Key="apply.elevatedLaunched">Fenêtre d’élévation ouverte, résultat attendu.</s:String>

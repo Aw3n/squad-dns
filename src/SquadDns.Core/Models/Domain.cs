@@ -31,7 +31,7 @@ public sealed record ApplyStep(string Name, string Command, bool Executed, bool 
     public override string ToString() => $"{Name}: {(Success ? "ok" : "ko")}";
 }
 
-public sealed record ApplyResult(ApplyStatus Status, string SummaryKey, IReadOnlyList<ApplyStep> Steps, string? Detail)
+public sealed record ApplyResult(ApplyStatus Status, string SummaryKey, IReadOnlyList<ApplyStep> Steps, string? Detail, bool LocalProxy = false)
 {
     public bool Ok => Status is ApplyStatus.Success or ApplyStatus.PartialSuccess or ApplyStatus.DryRun;
 }

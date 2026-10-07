@@ -228,34 +228,40 @@ public class DnsConfiguratorTests
     }
 
     [Fact]
-    public async Task Encrypted_preferred_falls_back_to_plain_when_the_cmdlets_are_missing()
+    public async Task Encrypted_preferred_uses_the_local_proxy_when_the_cmdlets_are_missing()
     {
-        // Windows 10 : « chiffre de preference » accepte le repli, donc on applique les
-        // serveurs en clair sous politique desactivee (valeur 1), jamais en pretendant
-        // le chiffrement. Aucune applet DoH ne doit apparaitre.
+        // Windows 10 : sans applets DoH, l'application apporte le chiffrement elle-meme
+        // via le proxy local 127.0.0.1. Les serveurs systeme pointent vers la boucle
+        // locale, la politique DoH native reste desactivee (valeur 1) pour que Windows
+        // ne pretende jamais chiffrer, et aucune applet DoH ne doit apparaitre.
         var shell = new FakeShell { CapabilityProbeOutput = "no" };
         var configurator = new DnsConfigurator(shell, new FakeRegistry());
 
         var result = await configurator.ApplyAsync(Cloudflare, 4, "Ethernet", DnsSecurityMode.EncryptedPreferred, dryRun: true);
 
         Assert.Equal(ApplyStatus.DryRun, result.Status);
+        Assert.True(result.LocalProxy);
         Assert.Equal(new[] { "setServers", "setPolicy", "flushCache" }, result.Steps.Select(s => s.Name));
+        Assert.Contains("127.0.0.1", result.Steps.Single(s => s.Name == "setServers").Command, StringComparison.Ordinal);
         Assert.Contains("-Value 1", result.Steps.Single(s => s.Name == "setPolicy").Command, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Steps, s => s.Name == "registerDoh");
         AssertNoMutatingScript(shell.Scripts);
     }
 
     [Fact]
-    public async Task Encrypted_modes_refuse_to_write_anything_when_the_doh_cmdlets_are_missing()
+    public async Task Encrypted_only_also_uses_the_local_proxy_when_the_cmdlets_are_missing()
     {
+        // Windows 10 : « DoH exige » n'est plus un refus — le proxy local fournit le
+        // chiffrement, donc le plan est identique au mode « chiffre de preference ».
         var shell = new FakeShell { CapabilityProbeOutput = "no", DefaultOutput = NoDohEntries };
         var configurator = new DnsConfigurator(shell, new FakeRegistry());
 
         var result = await configurator.ApplyAsync(Cloudflare, 4, "Ethernet", DnsSecurityMode.EncryptedOnly, dryRun: true);
 
-        Assert.Equal(ApplyStatus.Failed, result.Status);
-        Assert.Equal("apply.dohUnsupported", result.SummaryKey);
-        Assert.Empty(result.Steps);
-        Assert.Single(shell.Scripts);
+        Assert.Equal(ApplyStatus.DryRun, result.Status);
+        Assert.True(result.LocalProxy);
+        Assert.Equal(new[] { "setServers", "setPolicy", "flushCache" }, result.Steps.Select(s => s.Name));
+        Assert.Contains("127.0.0.1", result.Steps.Single(s => s.Name == "setServers").Command, StringComparison.Ordinal);
         AssertNoMutatingScript(shell.Scripts);
     }
 
@@ -269,11 +275,12 @@ public class DnsConfiguratorTests
     }
 
     [Fact]
-    public void Outcome_never_claims_encrypted_success_after_a_plain_fallback()
+    public void Outcome_reports_the_local_proxy_when_it_brings_the_encryption()
     {
-        Assert.Equal((ApplyStatus.PartialSuccess, "apply.plainFallback"), DnsConfigurator.DecideOutcome(0, true, true, encryptionUnavailable: true));
-        Assert.Equal((ApplyStatus.Failed, "apply.failed"), DnsConfigurator.DecideOutcome(1, true, true, encryptionUnavailable: true));
-        Assert.Equal((ApplyStatus.PartialSuccess, "apply.verifyMismatch"), DnsConfigurator.DecideOutcome(0, false, true, encryptionUnavailable: true));
+        Assert.Equal((ApplyStatus.Success, "apply.localProxy"), DnsConfigurator.DecideOutcome(0, true, true, localProxy: true));
+        Assert.Equal((ApplyStatus.Failed, "apply.failed"), DnsConfigurator.DecideOutcome(1, true, true, localProxy: true));
+        Assert.Equal((ApplyStatus.PartialSuccess, "apply.verifyMismatch"), DnsConfigurator.DecideOutcome(0, false, true, localProxy: true));
+        Assert.Equal((ApplyStatus.PartialSuccess, "apply.dohUnreachable"), DnsConfigurator.DecideOutcome(0, true, false, localProxy: true));
     }
 
     [Fact]

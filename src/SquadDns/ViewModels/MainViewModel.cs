@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Windows;
 using SquadDns.Core.Backup;
@@ -9,6 +11,7 @@ using SquadDns.Core.Diagnostics;
 using SquadDns.Core.Io;
 using SquadDns.Core.Models;
 using SquadDns.Core.Network;
+using SquadDns.Core.Proxy;
 using SquadDns.Core.Settings;
 using SquadDns.Core.Shell;
 using SquadDns.Core.Testing;
@@ -387,11 +390,41 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             os.DotSupportedBySystemResolver ? LocalizationManager.T("common.on") : LocalizationManager.T("common.off"));
 
         await RefreshAsync();
+        await ResumeLocalProxyAsync();
 
         if (Settings.UpdatesEnabled)
         {
             _ = CheckUpdateAsync();
         }
+    }
+
+    // Apres un redemarrage, le systeme DNS pointe toujours vers 127.0.0.1 mais le processus
+    // proxy est mort : on le relance pour que le chiffrement reprenne sans action de
+    // l'utilisateur. Sans ce rappel, le poste resterait en DNS clair vers la boucle locale.
+    private async Task ResumeLocalProxyAsync()
+    {
+        var state = ProxyStateStore.Read(_paths.ProxyStateFile);
+        if (state is null || ProxyStateStore.IsProcessAlive(state.ProcessId) || _selectedAdapter is null)
+        {
+            return;
+        }
+
+        var current = await _configurator.ReadStateAsync(_selectedAdapter.Index, _selectedAdapter.Alias);
+        if (!current.Servers.Contains(LocalDnsProxy.LoopbackAddress, StringComparer.OrdinalIgnoreCase))
+        {
+            ProxyStateStore.Clear(_paths.ProxyStateFile);
+            return;
+        }
+
+        var profile = ProviderCatalog.Find(state.ProfileId) ?? LoadCustomProfile();
+        if (profile is null)
+        {
+            ProxyStateStore.Clear(_paths.ProxyStateFile);
+            return;
+        }
+
+        StartDetachedProxy(profile, state.ModeValue);
+        _log.Write("proxy", $"resumed after reboot for {profile.Id}");
     }
 
     public async Task RefreshAsync()
@@ -440,26 +473,35 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         var state = await _configurator.ReadStateAsync(_selectedAdapter.Index, _selectedAdapter.Alias);
 
+        var proxyState = ProxyStateStore.Read(_paths.ProxyStateFile);
+        var proxyLive = proxyState is not null && ProxyStateStore.IsProcessAlive(proxyState.ProcessId);
+        var proxyActive = proxyLive
+            && state.Servers.Contains(LocalDnsProxy.LoopbackAddress, StringComparer.OrdinalIgnoreCase);
+
         PolicyLine = LocalizationManager.T(state.PolicyText);
         ActiveServersLine = state.Servers.Count == 0 ? "-" : string.Join(", ", state.Servers);
-        SecurityStateLine = state.PolicyValue switch
-        {
-            3 => LocalizationManager.T("status.secured"),
-            2 => LocalizationManager.T("status.fallback"),
-            1 => LocalizationManager.T("status.plain"),
-            _ => state.DohEntries.Count > 0 && state.Servers.Count > 0
-                ? LocalizationManager.T("status.fallback")
-                : LocalizationManager.T("status.unknown")
-        };
+        SecurityStateLine = proxyActive
+            ? LocalizationManager.T("status.localProxy")
+            : state.PolicyValue switch
+            {
+                3 => LocalizationManager.T("status.secured"),
+                2 => LocalizationManager.T("status.fallback"),
+                1 => LocalizationManager.T("status.plain"),
+                _ => state.DohEntries.Count > 0 && state.Servers.Count > 0
+                    ? LocalizationManager.T("status.fallback")
+                    : LocalizationManager.T("status.unknown")
+            };
 
         foreach (var card in AllProfiles)
         {
-            card.IsCurrent = state.PolicyValue != 1
-                && card.Profile.ResolverAddresses.All(address =>
-                    state.Servers.Contains(address, StringComparer.OrdinalIgnoreCase)
-                    && state.DohEntries.Any(entry =>
-                        string.Equals(entry.ServerAddress, address, StringComparison.OrdinalIgnoreCase)
-                        && string.Equals(entry.DohTemplate, card.Profile.DoHTemplate, StringComparison.OrdinalIgnoreCase)));
+            card.IsCurrent = proxyActive
+                ? string.Equals(card.Profile.Id, proxyState!.ProfileId, StringComparison.OrdinalIgnoreCase)
+                : state.PolicyValue != 1
+                    && card.Profile.ResolverAddresses.All(address =>
+                        state.Servers.Contains(address, StringComparer.OrdinalIgnoreCase)
+                        && state.DohEntries.Any(entry =>
+                            string.Equals(entry.ServerAddress, address, StringComparison.OrdinalIgnoreCase)
+                            && string.Equals(entry.DohTemplate, card.Profile.DoHTemplate, StringComparison.OrdinalIgnoreCase)));
 
             if (!card.IsCurrent)
             {
@@ -468,7 +510,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         var current = AllProfiles.FirstOrDefault(card => card.IsCurrent);
-        if (current is not null)
+        if (current is not null && !proxyActive)
         {
             var probe = await _tester.TestDoHAsync(current.Profile, Settings.TestDomain);
             current.DohEndpointUnreachable = !probe.Success;
@@ -593,9 +635,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
+            DnsBackup? safetyBackup = null;
             if (!PreviewOnly && AutoBackup)
             {
-                await CreateBackupAsync(profile, silent: true);
+                safetyBackup = await CreateBackupAsync(profile, silent: true);
             }
 
             var result = await _configurator.ApplyAsync(profile, adapter.Index, adapter.Alias, mode, PreviewOnly, ConfirmEncryptionAsync);
@@ -610,6 +653,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 }
 
                 result = elevated;
+            }
+
+            if (!PreviewOnly && result.LocalProxy && result.Status == ApplyStatus.Success)
+            {
+                result = await ActivateLocalProxyAsync(profile, mode, safetyBackup, result);
             }
 
             card.DohEndpointUnreachable = result.SummaryKey == "apply.dohUnreachable";
@@ -681,6 +729,158 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             + (PreviewOnly ? " --preview" : string.Empty);
 
         if (!Elevation.StartProcessElevated(executable, arguments))
+        {
+            return null;
+        }
+
+        SetStatus(LocalizationManager.T("apply.elevatedLaunched"), StatusLevel.Info);
+
+        for (var attempt = 0; attempt < 240; attempt++)
+        {
+            await Task.Delay(500);
+
+            if (!File.Exists(_paths.LastApplyFile))
+            {
+                continue;
+            }
+
+            try
+            {
+                var json = await File.ReadAllTextAsync(_paths.LastApplyFile);
+                var parsed = JsonSerializer.Deserialize<ApplyHandshake>(json);
+                if (parsed is null)
+                {
+                    continue;
+                }
+
+                TryDelete(_paths.LastApplyFile);
+                return parsed.ToResult();
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            {
+                // the elevated child is still writing the handshake file
+            }
+        }
+
+        return null;
+    }
+
+    // Le systeme DNS vient d'etre pointe vers 127.0.0.1 : on lance le relais detache, puis on
+    // exige une resolution reelle a travers lui avant de valider. Sinon le poste resterait avec
+    // un resolver mort : on tue le proxy et on restaure la sauvegarde de securite.
+    private async Task<ApplyResult> ActivateLocalProxyAsync(DnsProfile profile, DnsSecurityMode mode, DnsBackup? safetyBackup, ApplyResult applyResult)
+    {
+        StopLocalProxy();
+        StartDetachedProxy(profile, mode);
+
+        if (await WaitForProxyStateAsync() && await LocalDnsProxy.ProbeAsync(Settings.TestDomain))
+        {
+            _log.Write("proxy", $"active for {profile.Id} ({mode})");
+            return applyResult;
+        }
+
+        _log.Write("proxy", "no answering proxy, rolling back to the safety backup");
+        return await FailLocalProxyAsync(profile, safetyBackup, applyResult);
+    }
+
+    private async Task<ApplyResult> FailLocalProxyAsync(DnsProfile profile, DnsBackup? safetyBackup, ApplyResult applyResult)
+    {
+        StopLocalProxy();
+
+        if (safetyBackup is not null)
+        {
+            var restore = await RestoreWithElevationAsync(safetyBackup.Id);
+            if (restore?.Status is ApplyStatus.Success or ApplyStatus.PartialSuccess)
+            {
+                return applyResult with { Status = ApplyStatus.Failed, SummaryKey = "apply.localProxyFailed" };
+            }
+
+            var detail = restore?.SummaryKey ?? "apply.elevationCanceled";
+            _log.Write("proxy", $"rollback failed ({detail}) after proxy failure for {profile.Id}");
+            return applyResult with { Status = ApplyStatus.Failed, SummaryKey = "apply.localProxyFailed", Detail = detail };
+        }
+
+        return applyResult with { Status = ApplyStatus.Failed, SummaryKey = "apply.localProxyFailed" };
+    }
+
+    private void StartDetachedProxy(DnsProfile profile, DnsSecurityMode mode)
+    {
+        var executable = Environment.ProcessPath ?? "SquadDns.exe";
+        var startInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = executable,
+            Arguments = $"--proxy {profile.Id} {mode}",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
+        };
+
+        try
+        {
+            System.Diagnostics.Process.Start(startInfo);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            // Le parent le verra comme « pas de fichier d'etat » et déclenchera le repli.
+            _log.Write("proxy", "detached start failed: " + ex.Message);
+        }
+    }
+
+    private async Task<bool> WaitForProxyStateAsync(int attempts = 20)
+    {
+        for (var attempt = 0; attempt < attempts; attempt++)
+        {
+            var state = ProxyStateStore.Read(_paths.ProxyStateFile);
+            if (state is not null && ProxyStateStore.IsProcessAlive(state.ProcessId))
+            {
+                return true;
+            }
+
+            await Task.Delay(500);
+        }
+
+        return false;
+    }
+
+    private void StopLocalProxy()
+    {
+        var state = ProxyStateStore.Read(_paths.ProxyStateFile);
+        if (state is not null && ProxyStateStore.IsProcessAlive(state.ProcessId))
+        {
+            try
+            {
+                using var process = System.Diagnostics.Process.GetProcessById(state.ProcessId);
+                process.Kill();
+                _log.Write("proxy", $"stopped pid {state.ProcessId}");
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                _log.Write("proxy", "stop failed: " + ex.Message);
+            }
+        }
+
+        ProxyStateStore.Clear(_paths.ProxyStateFile);
+    }
+
+    // Restauration elevee avec poignee de main : le parent n'est pas forcement administrateur,
+    // donc l'ecriture reseau part dans un processus enfant (comme --apply).
+    private async Task<ApplyResult?> RestoreWithElevationAsync(string backupId)
+    {
+        try
+        {
+            if (File.Exists(_paths.LastApplyFile))
+            {
+                File.Delete(_paths.LastApplyFile);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Write("elevation", "stale handshake file: " + ex.Message);
+        }
+
+        var executable = Environment.ProcessPath ?? "SquadDns.exe";
+
+        if (!Elevation.StartProcessElevated(executable, $"--restore {backupId}"))
         {
             return null;
         }
@@ -869,13 +1069,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ? value.Value.ToString("F0", CultureInfo.InvariantCulture)
             : LocalizationManager.T("tests.failed");
 
-    private async Task CreateBackupAsync(DnsProfile profile, bool silent)
+    private async Task<DnsBackup?> CreateBackupAsync(DnsProfile profile, bool silent)
     {
         var adapter = _selectedAdapter;
         if (adapter is null)
         {
             SetStatus(LocalizationManager.T("status.noAdapter"), StatusLevel.Error);
-            return;
+            return null;
         }
 
         try
@@ -894,6 +1094,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 SetStatus($"{LocalizationManager.T("backup.auto.created")} {backup.CreatedAtText}", StatusLevel.Success);
             }
+
+            return backup;
         }
         catch (Exception ex)
         {
@@ -908,6 +1110,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
 
             SetStatus($"{LocalizationManager.T("common.error")}: {ex.Message}", StatusLevel.Error);
+            return null;
         }
     }
 
@@ -921,12 +1124,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         IsBusy = true;
         try
         {
+            StopLocalProxy();
+
             var result = await _configurator.RestoreAsync(row.Backup.ToPlan(), PreviewOnly);
 
             if (result.Status == ApplyStatus.NeedsElevation)
             {
-                SetStatus(LocalizationManager.T("apply.needsElevation"), StatusLevel.Warning);
-                return;
+                var elevated = await RestoreWithElevationAsync(row.Backup.Id);
+                if (elevated is null)
+                {
+                    SetStatus(LocalizationManager.T("apply.elevationCanceled"), StatusLevel.Warning);
+                    return;
+                }
+
+                result = elevated;
             }
 
             ShowSteps(result);
@@ -1205,16 +1416,18 @@ public sealed class ApplyHandshake
     public ApplyStatus Status { get; set; }
     public string SummaryKey { get; set; } = "apply.failed";
     public string? Detail { get; set; }
+    public bool LocalProxy { get; set; }
     public List<StepHandshake> Steps { get; set; } = new();
 
     public ApplyResult ToResult() =>
-        new(Status, SummaryKey, Steps.Select(step => step.ToStep()).ToList(), Detail);
+        new(Status, SummaryKey, Steps.Select(step => step.ToStep()).ToList(), Detail, LocalProxy);
 
     public static ApplyHandshake From(ApplyResult result) => new()
     {
         Status = result.Status,
         SummaryKey = result.SummaryKey,
         Detail = result.Detail,
+        LocalProxy = result.LocalProxy,
         Steps = result.Steps.Select(StepHandshake.From).ToList()
     };
 }

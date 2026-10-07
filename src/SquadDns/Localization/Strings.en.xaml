@@ -24,6 +24,7 @@
     <s:String x:Key="status.fallback">Unencrypted fallback allowed</s:String>
     <s:String x:Key="status.plain">Unencrypted</s:String>
     <s:String x:Key="status.unknown">Unknown state</s:String>
+    <s:String x:Key="status.localProxy">Encrypted via the Squad DNS local proxy</s:String>
 
     <s:String x:Key="policy.require">DoH required</s:String>
     <s:String x:Key="policy.auto">DoH automatic</s:String>
@@ -66,16 +67,16 @@
     <s:String x:Key="elevation.banner">Administrator rights are required to write the network configuration.</s:String>
     <s:String x:Key="elevation.button">Relaunch as administrator</s:String>
     <s:String x:Key="apply.success">Configuration applied and verified.</s:String>
+    <s:String x:Key="apply.localProxy">Encryption active: Squad DNS relays queries over DoH through the local 127.0.0.1 proxy.</s:String>
     <s:String x:Key="restore.success">Configuration restored and verified.</s:String>
     <s:String x:Key="apply.verifyMismatch">Commands applied but verification is incomplete.</s:String>
     <s:String x:Key="apply.dohUnreachable">Configuration written, but the DoH endpoint does not answer: DNS traffic is not actually encrypted.</s:String>
-    <s:String x:Key="apply.plainFallback">Servers applied WITHOUT encryption: this Windows (10 or 11 before 22H2) has no native DoH/DoT client.</s:String>
+    <s:String x:Key="apply.localProxyFailed">The local proxy cannot resolve: the previous configuration was restored, nothing is encrypted.</s:String>
     <s:String x:Key="apply.partial">Partially applied.</s:String>
     <s:String x:Key="apply.failed">Apply failed.</s:String>
     <s:String x:Key="apply.dryRun">Preview generated, nothing written.</s:String>
     <s:String x:Key="apply.needsElevation">Elevation required.</s:String>
     <s:String x:Key="apply.noServers">This service has no server address.</s:String>
-    <s:String x:Key="apply.dohUnsupported">This Windows has no DNS-over-HTTPS cmdlets: Windows 11 22H2 or later is required. Nothing was written.</s:String>
     <s:String x:Key="apply.dohRegistrationFailed">DoH registration was refused: the required encryption could not be configured, so the DNS servers were left untouched.</s:String>
     <s:String x:Key="apply.elevationCanceled">Elevation cancelled.</s:String>
     <s:String x:Key="apply.elevatedLaunched">Elevation prompt opened, waiting for the result.</s:String>

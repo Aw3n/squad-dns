@@ -1,6 +1,7 @@
 using Microsoft.Win32;
 using SquadDns.Core.Io;
 using SquadDns.Core.Models;
+using SquadDns.Core.Proxy;
 using SquadDns.Core.Settings;
 using SquadDns.Core.Shell;
 
@@ -137,30 +138,24 @@ public sealed class DnsConfigurator
             return new ApplyResult(ApplyStatus.Failed, "apply.noServers", steps, interfaceAlias);
         }
 
-        // Windows 10 et Windows 11 avant 22H2 n'ont aucun client DoH/DoT natif : la lecture
-        // revient vide, le plan choisit Add-, et la politique DoHPolicy y est inerte. « DoH
-        // exige » reste un refus net. « Chiffre de preference » accepte le repli, donc on
-        // applique les serveurs en clair sous politique desactivee en le disant dans le bilan.
-        var encryptionUnavailable = mode != DnsSecurityMode.Unencrypted && !await SupportsDoHConfigurationAsync(ct);
-        if (encryptionUnavailable && mode == DnsSecurityMode.EncryptedOnly)
-        {
-            return new ApplyResult(ApplyStatus.Failed, "apply.dohUnsupported", steps, interfaceAlias);
-        }
-
-        if (encryptionUnavailable)
-        {
-            mode = DnsSecurityMode.Unencrypted;
-        }
+        // Windows 10 et Windows 11 avant 22H2 n'ont aucun client DoH/DoT natif : au lieu du
+        // repli en clair, l'application apporte le chiffrement elle-meme via un proxy local
+        // (127.0.0.1) qui relaie en DoH. Les deux modes chiffres passent par lui ; la politique
+        // systeme DoHPolicy, inerte sur ces builds, est forcee a « desactivee » pour ne pas
+        // laisser croire que le systeme chiffre quoi que ce soit.
+        var localProxy = mode != DnsSecurityMode.Unencrypted && !await SupportsDoHConfigurationAsync(ct);
 
         if (!dryRun && !Elevation.IsElevated())
         {
             return new ApplyResult(ApplyStatus.NeedsElevation, "apply.needsElevation", steps, interfaceAlias);
         }
 
-        var addresses = profile.ResolverAddresses.Take(2).ToArray();
+        var addresses = localProxy
+            ? new[] { LocalDnsProxy.LoopbackAddress }
+            : profile.ResolverAddresses.Take(2).ToArray();
         var allowFallback = mode != DnsSecurityMode.EncryptedOnly;
 
-        if (mode != DnsSecurityMode.Unencrypted)
+        if (mode != DnsSecurityMode.Unencrypted && !localProxy)
         {
             var existing = await ReadDohEntriesAsync(ct);
 
@@ -184,7 +179,7 @@ public sealed class DnsConfigurator
         var setServers = $"Set-DnsClientServerAddress -InterfaceIndex {interfaceIndex} -ServerAddresses {PowerShellShell.QuoteArray(addresses)}";
         steps.Add(await RunStepAsync("setServers", setServers, dryRun, ct));
 
-        var policy = PolicyValueFor(mode);
+        var policy = localProxy ? 1 : PolicyValueFor(mode);
         var setPolicy = $"New-ItemProperty -Path 'HKLM:\\{PolicyKey}' -Name {PolicyValueName} -PropertyType DWord -Value {policy} -Force | Out-Null";
         steps.Add(await RunStepAsync("setPolicy", setPolicy, dryRun, ct));
 
@@ -192,7 +187,7 @@ public sealed class DnsConfigurator
 
         if (dryRun)
         {
-            return new ApplyResult(ApplyStatus.DryRun, "apply.dryRun", steps, interfaceAlias);
+            return new ApplyResult(ApplyStatus.DryRun, "apply.dryRun", steps, interfaceAlias, localProxy);
         }
 
         var verification = await VerifyAsync(profile, interfaceIndex, addresses, policy, ct);
@@ -203,20 +198,20 @@ public sealed class DnsConfigurator
                                  confirmEncryptionAsync is null ||
                                  await confirmEncryptionAsync(profile, ct);
 
-        var (status, summaryKey) = DecideOutcome(failed, verification, encryptionResponds, encryptionUnavailable);
-        return new ApplyResult(status, summaryKey, steps, interfaceAlias);
+        var (status, summaryKey) = DecideOutcome(failed, verification, encryptionResponds, localProxy);
+        return new ApplyResult(status, summaryKey, steps, interfaceAlias, localProxy);
     }
 
     // Le controle de coherence ne compare que des textes : un modele DoH enregistre mais mort
     // (Quad9 :5053, Verisign dns64) passait pour « applique et verifie ». L'ordre est volontaire :
     // une commande qui echoue prime, puis l'etat incoherent, puis le point qui ne repond pas.
-    // encryptionUnavailable = repli volontaire sur Windows sans client DoH : applique en clair,
-    // jamais annonce comme un succes chiffre.
-    public static (ApplyStatus Status, string SummaryKey) DecideOutcome(int failedSteps, bool stateMatches, bool encryptionResponds, bool encryptionUnavailable = false) =>
+    // localProxy = chiffrement fourni par l'application (proxy 127.0.0.1 relaie en DoH) : le
+    // succes porte la mention explicite, jamais confondu avec le DoH natif du systeme.
+    public static (ApplyStatus Status, string SummaryKey) DecideOutcome(int failedSteps, bool stateMatches, bool encryptionResponds, bool localProxy = false) =>
         failedSteps > 0 ? (ApplyStatus.Failed, "apply.failed")
         : !stateMatches ? (ApplyStatus.PartialSuccess, "apply.verifyMismatch")
-        : encryptionUnavailable ? (ApplyStatus.PartialSuccess, "apply.plainFallback")
         : !encryptionResponds ? (ApplyStatus.PartialSuccess, "apply.dohUnreachable")
+        : localProxy ? (ApplyStatus.Success, "apply.localProxy")
         : (ApplyStatus.Success, "apply.success");
 
     public static (ApplyStatus Status, string SummaryKey) DecideRestoreOutcome(int failedSteps, bool stateMatches) =>
